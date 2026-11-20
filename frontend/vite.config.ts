@@ -1,4 +1,3 @@
-import { rmSync } from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -12,7 +11,9 @@ const require = createRequire(import.meta.url);
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
-  rmSync("dist-electron", { recursive: true, force: true });
+  // 不再在配置加载阶段 rmSync("dist-electron")：
+  // 沙箱把 fs.rmSync 包装成回收站操作，目录内文件多时会超时中断构建。
+  // 需要全新构建时，用 shell 在构建命令前删除该目录即可。
 
   const sourcemap = command === "serve" || !!process.env.VSCODE_DEBUG;
 

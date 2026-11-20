@@ -123,7 +123,10 @@ const resolvePackageManifestPath = (packageName, requiringManifestPath) => {
 };
 
 const collectInstalledDependencyNames = (rootPackageNames) => {
-  const dependencyNames = new Set();
+  /** name -> 实际安装版本。传递依赖（如 i18next 依赖的 @babel/runtime）不在根
+   * package.json 声明，必须带上真实版本，否则精简 manifest 会漏掉它们，
+   * electron-builder 就不会把它们打进 asar，运行时报 Cannot find module。 */
+  const dependencies = new Map();
   const visitedManifests = new Set();
 
   const visit = (packageName, requiringManifestPath, optional = false) => {
@@ -140,7 +143,10 @@ const collectInstalledDependencyNames = (rootPackageNames) => {
     visitedManifests.add(manifestPath);
 
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    dependencyNames.add(manifest.name ?? packageName);
+    const name = manifest.name ?? packageName;
+    if (!dependencies.has(name) && manifest.version) {
+      dependencies.set(name, `^${manifest.version}`);
+    }
     for (const dependencyName of Object.keys(manifest.dependencies ?? {})) {
       visit(dependencyName, manifestPath);
     }
@@ -152,7 +158,7 @@ const collectInstalledDependencyNames = (rootPackageNames) => {
   for (const packageName of rootPackageNames) {
     visit(packageName, packagePath);
   }
-  return dependencyNames;
+  return dependencies;
 };
 
 const createRuntimeManifest = (rootPackage) => {
@@ -164,23 +170,23 @@ const createRuntimeManifest = (rootPackage) => {
     ...rootPackage.dependencies,
     ...rootPackage.optionalDependencies,
   };
+  // 运行时闭包 = 直接 import + 它们的全部传递依赖（含 @babel/runtime 这类
+  // 未声明在根 package.json 的包）。全部写进精简 manifest，electron-builder
+  // 才会把它们打进 asar，避免启动期 Cannot find module。
   const runtimePackageNames = new Set(importedPackageNames);
-
-  // electron-builder 23 flattens pnpm's dependency tree. Promote any explicitly
-  // declared dependency in the runtime closure so the intended version wins over
-  // a conflicting development dependency hoisted at the workspace root.
-  for (const packageName of Object.keys(declaredDependencies)) {
-    if (installedDependencyNames.has(packageName)) {
-      runtimePackageNames.add(packageName);
-    }
+  for (const packageName of installedDependencyNames.keys()) {
+    runtimePackageNames.add(packageName);
   }
+
   for (const packageName of [...runtimePackageNames].sort()) {
+    // 根 package.json 显式声明的版本优先（与开发期 semver 保持一致），
+    // 否则用实际安装到的版本（传递依赖走这里）。
     const version =
-      rootPackage.dependencies?.[packageName] ??
-      rootPackage.optionalDependencies?.[packageName];
+      declaredDependencies[packageName] ??
+      installedDependencyNames.get(packageName);
     if (!version) {
       throw new Error(
-        `Electron runtime dependency ${packageName} must be declared in package.json`,
+        `Electron runtime dependency ${packageName} has no resolvable version`,
       );
     }
     dependencies[packageName] = version;
@@ -247,17 +253,25 @@ const builderCommands = getBuilderCommands();
  */
 const ensurePnpmTopLevelLinks = () => {
   const created = [];
-  for (const name of ["koffi", "rxjs"]) {
+  // scoped 包（如 @babel/runtime）的顶层目录是 @babel，链接到 scope 目录本身。
+  const linkTargets = ["koffi", "rxjs", "@babel/runtime"];
+  for (const name of linkTargets) {
     const linkPath = path.join(repoRoot, "node_modules", name);
     if (existsSync(linkPath)) continue;
+    const isScoped = name.startsWith("@");
+    const scope = isScoped ? name.split("/")[0] : name;
+    const leaf = isScoped ? name.split("/")[1] : name;
     const candidates = readdirSync(path.join(repoRoot, "node_modules", ".pnpm"))
-      .filter((entry) => entry.startsWith(`${name}@`))
+      .filter((entry) => entry.startsWith(`${name.replace("/", "+")}@`))
       .map((entry) =>
         path.join(repoRoot, "node_modules", ".pnpm", entry, "node_modules", name),
       )
       .filter(existsSync);
     if (!candidates.length) continue;
     try {
+      if (isScoped) {
+        mkdirSync(path.join(repoRoot, "node_modules", scope), { recursive: true });
+      }
       symlinkSync(candidates[0], linkPath, "junction");
       created.push(linkPath);
       console.log(`Linked node_modules/${name} -> ${path.basename(path.dirname(candidates[0]))}`);

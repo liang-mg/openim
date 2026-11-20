@@ -29,7 +29,7 @@ function createSplashWindow() {
 export function createMainWindow() {
   createSplashWindow();
   mainWindow = new BrowserWindow({
-    title: "Dev-ER",
+    title: "新搏",
     icon: join(global.pathConfig.publicPath, "favicon.ico"),
     frame: false,
     show: false,
