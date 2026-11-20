@@ -247,30 +247,39 @@ restoreStaleBackup();
 const builderCommands = getBuilderCommands();
 
 /**
- * pnpm 会把依赖提升到 node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>，
- * 但 electron-builder.json5 的 files/extraResources 用的是 node_modules/<pkg> 路径。
- * 打包期间给这些包建顶层目录链接，结束后移除，避免原生库（koffi.node）漏打包。
+ * pnpm 把依赖放在 node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>，
+ * 只有根 package.json 直接声明的依赖才有 node_modules/<pkg> 顶层链接。
+ * electron-builder 解析精简 manifest 时依赖这些顶层路径——传递依赖
+ * （conf / dot-prop / @babel/runtime 等）没有顶层链接就不会被打进 asar，
+ * 运行时报 Cannot find module。
+ *
+ * 因此：运行时闭包里的每个包都要保证有顶层链接。这里自动为所有缺失者补齐，
+ * 不再硬编码包名，今后新增传递依赖也不会漏。
  */
-const ensurePnpmTopLevelLinks = () => {
+const ensurePnpmTopLevelLinks = (runtimePackageNames) => {
   const created = [];
-  // scoped 包（如 @babel/runtime）的顶层目录是 @babel，链接到 scope 目录本身。
-  const linkTargets = ["koffi", "rxjs", "@babel/runtime"];
-  for (const name of linkTargets) {
+  const pnpmDir = path.join(repoRoot, "node_modules", ".pnpm");
+  const pnpmEntries = readdirSync(pnpmDir);
+  const findInStore = (name) => {
+    const prefix = `${name.replace("/", "+")}@`;
+    return pnpmEntries
+      .filter((entry) => entry.startsWith(prefix))
+      .map((entry) => path.join(pnpmDir, entry, "node_modules", name))
+      .filter(existsSync);
+  };
+  for (const name of runtimePackageNames) {
     const linkPath = path.join(repoRoot, "node_modules", name);
     if (existsSync(linkPath)) continue;
     const isScoped = name.startsWith("@");
-    const scope = isScoped ? name.split("/")[0] : name;
-    const leaf = isScoped ? name.split("/")[1] : name;
-    const candidates = readdirSync(path.join(repoRoot, "node_modules", ".pnpm"))
-      .filter((entry) => entry.startsWith(`${name.replace("/", "+")}@`))
-      .map((entry) =>
-        path.join(repoRoot, "node_modules", ".pnpm", entry, "node_modules", name),
-      )
-      .filter(existsSync);
-    if (!candidates.length) continue;
+    const candidates = findInStore(name);
+    if (!candidates.length) {
+      console.warn(`No pnpm store copy for ${name}; skipping link`);
+      continue;
+    }
     try {
       if (isScoped) {
-        mkdirSync(path.join(repoRoot, "node_modules", scope), { recursive: true });
+        // @scope 目录可能是真实目录（pnpm 建的），直接在其下建子包链接。
+        mkdirSync(path.dirname(linkPath), { recursive: true });
       }
       symlinkSync(candidates[0], linkPath, "junction");
       created.push(linkPath);
@@ -304,7 +313,7 @@ if (dryRun) {
 }
 
 writeFileSync(backupPath, originalPackageText);
-const links = ensurePnpmTopLevelLinks();
+const links = ensurePnpmTopLevelLinks(Object.keys(runtimeManifest.dependencies));
 let exitCode = 0;
 try {
   writeFileSync(packagePath, `${JSON.stringify(runtimeManifest, null, 2)}\n`);

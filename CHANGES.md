@@ -64,3 +64,12 @@
 2. 重点检查 `src/routes/index.tsx`、`src/layout/LeftNavBar/index.tsx`、`src/App.tsx`——基线更新这几个文件时我们的 OA 入口容易被冲掉。
 3. `src/api/oaApi.ts` 依赖 `imApi.ts` 的 token/base 地址，基线若改鉴权方式需同步适配。
 4. 对账后跑 `oa-custom/scripts/oa_*_check.js` 全套回归，确认无回退。
+
+---
+
+## 四、桌面端打包依赖修复（2026-11-20）
+
+- `frontend/scripts/electron-build.mjs`：`ensurePnpmTopLevelLinks` 不再硬编码包名，改为对 dry-run 算出的**全部运行时依赖闭包**自动补 pnpm 顶层链接。此前 `conf`/`dot-prop`/`@babel/runtime` 等传递依赖没有顶层链接，未进 asar，启动报 `Cannot find module`。
+- `scripts/oa_electron_package_check.js`（新增）：打包完整性回归，逐个验证运行时依赖在 asar 内有物理文件，并单独点名易漏模块。对最新 Windows 包验证结果 **39/39 通过**。
+  - 用法：先在开发机大仓打包，再 `node scripts/oa_electron_package_check.js <app路径>`；`<app路径>` 为 `src/openim-electron-demo` 的绝对路径（也支持 `OA_ELECTRON_APP` 环境变量）。
+- 打包期 `file source doesn't exist ... node_modules/rxjs` 是无害告警：`rxjs` 不在运行时依赖清单、也无代码引用，可忽略。
