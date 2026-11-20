@@ -1,15 +1,13 @@
 'use strict';
-const OA_SECRET = process.env.OA_TOKEN_SECRET || '<CHANGE_ME_OA_TOKEN_SECRET>';
-
 // 持久化验证：提交带附件的日报 → 刷新页面 → 附件仍在且缩略图能加载 → 领导能下载
 const {
   chromium,
-} = require('playwright-core');
+} = require('D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core');
 const crypto = require('crypto');
 
-const CHROME = process.env.CHROME_PATH || ''; // 留空用 playwright 自带 chromium
+const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const BASE = 'http://127.0.0.1:5173/';
-const OUT = require('path').resolve(__dirname, '../output') + require('path').sep;
+const OUT = 'D:/work/openim/openim-docker-latest/output/';
 const ATTACH = OUT + '_upload-demo.png';
 
 let pass = 0, fail = 0;
@@ -22,27 +20,25 @@ function token(uid) {
   const now = Math.floor(Date.now() / 1000);
   const h = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const p = b64(JSON.stringify({ UserID: uid, Platform: 'Web', exp: now + 86400, iat: now, nbf: now - 10 }));
-  const s = crypto.createHmac('sha256', OA_SECRET).update(`${h}.${p}`).digest('base64')
+  const s = crypto.createHmac('sha256', 'chat123').update(`${h}.${p}`).digest('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${h}.${p}.${s}`;
 }
 
 async function login(page, phone) {
-  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2200);
-  const tab = page.getByText('验证码登录');
-  if (await tab.count()) { await tab.first().click(); await page.waitForTimeout(400); }
-  const ph = page.locator('input[type="tel"], input[placeholder*="手机号"]').first();
-  if (await ph.count()) await ph.fill(phone);
-  const code = page.locator('input[placeholder*="验证码"]').first();
-  if (await code.count()) await code.fill('666666');
-  const btn = page.getByRole('button', { name: '登录' });
-  if (await btn.count()) await btn.first().click();
-  await page.waitForTimeout(6000);
+  await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForTimeout(1800);
+  const acct = page.locator('input[placeholder*="账号"]').first();
+  if (await acct.count()) await acct.fill(phone);
+  const pwd = page.locator('input[type="password"]').first();
+  if (await pwd.count()) await pwd.fill("Xinbo@2026");
+  await page.getByRole("button", { name: /登录/ }).first().click();
+  await page.waitForTimeout(5500);
+  return page.url().includes("/chat");
 }
 
 (async () => {
-  const browser = await chromium.launch({ headless: true, ...(CHROME ? { executablePath: CHROME } : {}) });
+  const browser = await chromium.launch({ headless: true, executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width: 1600, height: 950 }, deviceScaleFactor: 1.5 });
   const page = await ctx.newPage();
   await login(page, '12345678912'); // 王强：当天没有日报，可写

@@ -2,10 +2,10 @@
 // 员工管理页交互验证：添加 -> 编辑改角色 -> 停用
 const {
   chromium,
-} = require('playwright-core');
+} = require('D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core');
 
-const CHROME = process.env.CHROME_PATH || ''; // 留空用 playwright 自带 chromium
-const OUT = require('path').resolve(__dirname, '../output') + require('path').sep;
+const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const OUT = 'D:/work/openim/openim-docker-latest/output/';
 const BASE = 'http://127.0.0.1:5173/';
 const PHONE = '19306860353';
 
@@ -13,21 +13,19 @@ const log = (...a) => console.log(...a);
 const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
 (async () => {
-  const browser = await chromium.launch({ headless: true, ...(CHROME ? { executablePath: CHROME } : {}) });
+  const browser = await chromium.launch({ headless: true, executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width: 1600, height: 950 }, deviceScaleFactor: 1.5 });
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(String(e).slice(0, 160)));
 
-  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(2200);
-  const tab = page.getByText('验证码登录');
-  if (await tab.count()) { await tab.first().click(); await page.waitForTimeout(300); }
-  const ph = page.locator('input[type="tel"], input[placeholder*="手机号"]').first();
-  if (await ph.count()) await ph.fill(PHONE);
-  const cd = page.locator('input[placeholder*="验证码"]').first();
-  if (await cd.count()) await cd.fill('666666');
-  await page.getByRole('button', { name: '登录' }).first().click();
+  await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.waitForTimeout(1800);
+  const acct = page.locator('input[placeholder*="账号"]').first();
+  if (await acct.count()) await acct.fill(PHONE);
+  const pwd = page.locator('input[type="password"]').first();
+  if (await pwd.count()) await pwd.fill("Xinbo@2026");
+  await page.getByRole("button", { name: /登录/ }).first().click();
   await page.waitForTimeout(5500);
   log('登录:', page.url().includes('/chat') ? 'OK' : 'FAIL');
 

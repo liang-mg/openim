@@ -1,17 +1,16 @@
-const OA_SECRET = process.env.OA_TOKEN_SECRET || '<CHANGE_ME_OA_TOKEN_SECRET>';
 /**
  * 请假 / 补卡 UI + 端到端回归（批次 4）
  * 用法：node scripts/oa_leave_makeup_check.js
  * 覆盖：员工申请 → 组长审批 → 通过后进统计 → 工作台待办 → 权限；自清理
  */
-const { chromium } = require('playwright-core');
+const { chromium } = require("D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core");
 const crypto = require('crypto');
 const { execSync } = require('child_process');
 
 const BASE = "http://127.0.0.1:5173/";
 const OA = "http://127.0.0.1:10010/oa/api/v1";
-const CHROME = process.env.CHROME_PATH || ''; // 留空用 playwright 自带 chromium
-const OUT = require('path').resolve(__dirname, '../output') + require('path').sep;
+const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
+const OUT = "D:/work/openim/openim-docker-latest/output/";
 const PHONE = { liran: "12345678001", qiang: "12345678912", manager: "19306860353" };
 
 const b64 = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -19,7 +18,7 @@ function jwt(uid) {
   const n = Math.floor(Date.now() / 1000);
   const h = b64(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const p = b64(JSON.stringify({ UserID: uid, Platform: 'Web', exp: n + 86400, iat: n, nbf: n - 10 }));
-  const s = crypto.createHmac('sha256', OA_SECRET).update(`${h}.${p}`).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const s = crypto.createHmac('sha256', 'chat123').update(`${h}.${p}`).digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${h}.${p}.${s}`;
 }
 async function api(path, uid, body) {
@@ -31,15 +30,14 @@ async function api(path, uid, body) {
 }
 async function login(page, phone) {
   await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForTimeout(2200);
-  const tab = page.getByText("验证码登录");
-  if (await tab.count()) { await tab.first().click(); await page.waitForTimeout(400); }
-  const ph = page.locator('input[type="tel"], input[placeholder*="手机号"]').first();
-  if (await ph.count()) await ph.fill(phone);
-  const code = page.locator('input[placeholder*="验证码"]').first();
-  if (await code.count()) await code.fill("666666");
+  await page.waitForTimeout(1800);
+  const acct = page.locator('input[placeholder*="账号"]').first();
+  if (await acct.count()) await acct.fill(phone);
+  const pwd = page.locator('input[type="password"]').first();
+  if (await pwd.count()) await pwd.fill("Xinbo@2026");
   await page.getByRole("button", { name: /登录/ }).first().click();
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(5500);
+  return page.url().includes("/chat");
 }
 const pad = (n) => String(n).padStart(2, '0');
 function recentWorkday(offset) {
@@ -55,7 +53,7 @@ function check(name, ok, detail = '') {
 
 (async () => {
   const created = { leaves: [], makeups: [], checkins: [] };
-  const browser = await chromium.launch({ headless: true, ...(CHROME ? { executablePath: CHROME } : {}) });
+  const browser = await chromium.launch({ headless: true, executablePath: CHROME });
   const d = recentWorkday(5);
   const TOKEN = "UI回归" + Date.now();
 
@@ -159,7 +157,7 @@ function check(name, ok, detail = '') {
 
   // 清理
   try {
-    const mongo = (js) => execSync(`docker exec -i mongo mongosh -u openIM -p ${process.env.MONGO_PASSWORD || "<CHANGE_ME_MONGO_PASSWORD>"} --authenticationDatabase openim_v3 openim_v3 --quiet --eval '${js}'`, { stdio: 'ignore' });
+    const mongo = (js) => execSync(`docker exec -i mongo mongosh -u openIM -p openIM123 --authenticationDatabase openim_v3 openim_v3 --quiet --eval '${js}'`, { stdio: 'ignore' });
     if (created.leaves.length) mongo(`db.oa_leave.deleteMany({leave_id:{$in:[${created.leaves.map(x => `'${x}'`).join(',')}]}})`);
     if (created.makeups.length) mongo(`db.oa_makeup.deleteMany({makeup_id:{$in:[${created.makeups.map(x => `'${x}'`).join(',')}]}})`);
     if (created.checkins.length) mongo(`db.oa_checkin.deleteMany({checkin_id:{$in:[${created.checkins.map(x => `'${x}'`).join(',')}]}})`);

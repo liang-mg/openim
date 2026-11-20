@@ -1,6 +1,4 @@
 'use strict';
-const OA_SECRET = process.env.OA_TOKEN_SECRET || '<CHANGE_ME_OA_TOKEN_SECRET>';
-
 // 打卡页 UI 回归：真实定位展示 + 无「模拟照片」入口
 // 用法：node scripts/oa_checkin_ui_check.js
 //
@@ -11,12 +9,12 @@ const crypto = require("crypto");
 const { execSync } = require("child_process");
 const {
   chromium,
-} = require('playwright-core');
+} = require("D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core");
 
-const CHROME = process.env.CHROME_PATH || ''; // 留空用 playwright 自带 chromium
+const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const BASE = "http://127.0.0.1:5173/";
 const API = "http://127.0.0.1:10010/oa/api/v1";
-const OUT = require('path').resolve(__dirname, '../output') + require('path').sep;
+const OUT = "D:/work/openim/openim-docker-latest/output/";
 
 let pass = 0;
 let fail = 0;
@@ -39,7 +37,7 @@ function token(uid) {
     JSON.stringify({ UserID: uid, Platform: "Web", exp: now + 86400, iat: now, nbf: now - 10 }),
   );
   const s = crypto
-    .createHmac("sha256", OA_SECRET)
+    .createHmac("sha256", "chat123")
     .update(`${h}.${p}`)
     .digest("base64")
     .replace(/\+/g, "-")
@@ -50,19 +48,13 @@ function token(uid) {
 
 async function login(page, phone) {
   await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForTimeout(2200);
-  const tab = page.getByText("验证码登录");
-  if (await tab.count()) {
-    await tab.first().click();
-    await page.waitForTimeout(400);
-  }
-  const ph = page.locator('input[type="tel"], input[placeholder*="手机号"]').first();
-  if (await ph.count()) await ph.fill(phone);
-  const code = page.locator('input[placeholder*="验证码"]').first();
-  if (await code.count()) await code.fill("666666");
-  const btn = page.getByRole("button", { name: "登录" });
-  if (await btn.count()) await btn.first().click();
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(1800);
+  const acct = page.locator('input[placeholder*="账号"]').first();
+  if (await acct.count()) await acct.fill(phone);
+  const pwd = page.locator('input[type="password"]').first();
+  if (await pwd.count()) await pwd.fill("Xinbo@2026");
+  await page.getByRole("button", { name: /登录/ }).first().click();
+  await page.waitForTimeout(5500);
   return page.url().includes("/chat");
 }
 
@@ -71,7 +63,7 @@ function cleanup(uid) {
   const js = `db.oa_checkin.deleteMany({user_id:'${uid}',date:'${today}'}); db.oa_file.deleteMany({owner_id:'${uid}',scope:'checkin'}); print('cleaned')`;
   try {
     execSync(
-      `docker exec mongo mongosh -u openIM -p ${process.env.MONGO_PASSWORD || "<CHANGE_ME_MONGO_PASSWORD>"} --authenticationDatabase openim_v3 openim_v3 --quiet --eval "${js}"`,
+      `docker exec mongo mongosh -u openIM -p openIM123 --authenticationDatabase openim_v3 openim_v3 --quiet --eval "${js}"`,
       { stdio: "pipe" },
     );
     console.log("· 已清理测试打卡记录");
@@ -90,7 +82,7 @@ function cleanup(uid) {
 
   const browser = await chromium.launch({
     headless: true,
-    ...(CHROME ? { executablePath: CHROME } : {}),
+    executablePath: CHROME,
     args: [
       "--use-fake-device-for-media-stream",
       "--use-fake-ui-for-media-stream",

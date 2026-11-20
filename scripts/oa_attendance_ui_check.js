@@ -4,11 +4,11 @@
 // 只读接口，不写数据，跑完无需清理
 const {
   chromium,
-} = require('playwright-core');
+} = require("D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core");
 
-const CHROME = process.env.CHROME_PATH || ''; // 留空用 playwright 自带 chromium
+const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const BASE = "http://127.0.0.1:5173/";
-const OUT = require('path').resolve(__dirname, '../output') + require('path').sep;
+const OUT = "D:/work/openim/openim-docker-latest/output/";
 
 let pass = 0;
 let fail = 0;
@@ -24,23 +24,18 @@ const check = (name, ok, extra = "") => {
 
 async function login(page, phone) {
   await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForTimeout(2200);
-  const tab = page.getByText("验证码登录");
-  if (await tab.count()) {
-    await tab.first().click();
-    await page.waitForTimeout(400);
-  }
-  const ph = page.locator('input[type="tel"], input[placeholder*="手机号"]').first();
-  if (await ph.count()) await ph.fill(phone);
-  const code = page.locator('input[placeholder*="验证码"]').first();
-  if (await code.count()) await code.fill("666666");
+  await page.waitForTimeout(1800);
+  const acct = page.locator('input[placeholder*="账号"]').first();
+  if (await acct.count()) await acct.fill(phone);
+  const pwd = page.locator('input[type="password"]').first();
+  if (await pwd.count()) await pwd.fill("Xinbo@2026");
   await page.getByRole("button", { name: /登录/ }).first().click();
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(5500);
   return !(await page.locator('input[type="tel"]').count());
 }
 
 (async () => {
-  const browser = await chromium.launch({ headless: true, ...(CHROME ? { executablePath: CHROME } : {}) });
+  const browser = await chromium.launch({ headless: true, executablePath: CHROME });
   const errs = [];
 
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1.5 });
