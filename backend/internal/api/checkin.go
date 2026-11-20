@@ -157,6 +157,8 @@ func (s *Server) LocateCheckin(c *gin.Context) {
 		Address:  s.reverseGeocode(ctx, lat, lng),
 		FenceSet: office.Configured,
 		Office:   office,
+		Source:   "gps",
+		Accuracy: "precise",
 	}
 	if office.Configured {
 		res.Distance = haversineMeters(lat, lng, s.Cfg.OfficeLat, s.Cfg.OfficeLng)
@@ -211,7 +213,10 @@ type submitCheckinReq struct {
 	Lat          float64 `json:"lat"`
 	Lng          float64 `json:"lng"`
 	LocationName string  `json:"location_name"`
-	DeviceInfo   struct {
+	// 来源由前端带回，但后端必须用 LocationToken 校验，不能只信这个字符串。
+	LocationSource string `json:"location_source"`
+	LocationToken  string `json:"location_token"`
+	DeviceInfo     struct {
 		Model string `json:"model"`
 		UA    string `json:"ua"`
 	} `json:"device_info"`
@@ -273,8 +278,25 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 		fail(c, "未获取到定位，请允许浏览器使用位置后重试")
 		return
 	}
+
+	// 定位来源不能只信前端字符串：只有后端签发过 token 的才算 IP 定位。
+	// IP 定位精度是城市级，绝不参与 500 米围栏判定，否则会误判员工。
+	locationSource, locationAccuracy := "gps", "precise"
+	clientIP := requestIP(c)
+	if req.LocationSource == "ip" {
+		tokenIP, ok := s.verifyIPLocationToken(req.LocationToken, now)
+		if !ok {
+			fail(c, "IP 定位凭证无效或已过期，请重新定位")
+			return
+		}
+		locationSource, locationAccuracy = "ip", "city"
+		if clientIP == "" {
+			clientIP = tokenIP
+		}
+	}
+
 	distance, inFence := 0, false
-	if office.Configured {
+	if office.Configured && locationAccuracy == "precise" {
 		distance = haversineMeters(req.Lat, req.Lng, s.Cfg.OfficeLat, s.Cfg.OfficeLng)
 		inFence = distance <= s.Cfg.OfficeRadius
 		if !inFence && s.Cfg.StrictFence {
@@ -285,23 +307,27 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 	address := s.reverseGeocode(ctx, req.Lat, req.Lng)
 
 	rec := model.CheckinRecord{
-		ID:           fmt.Sprintf("ck_%s_%s_%s", uid, date, req.Type),
-		CompanyID:    s.Cfg.CompanyID,
-		UserID:       uid,
-		Date:         date,
-		Type:         req.Type,
-		CheckinTime:  now.UnixMilli(),
-		LocationName: office.Name,
-		Address:      address,
-		Lat:          req.Lat,
-		Lng:          req.Lng,
-		Distance:     distance,
-		InFence:      inFence,
-		FenceSet:     office.Configured,
-		Device:       deviceText(req.DeviceInfo.Model, req.DeviceInfo.UA),
-		Status:       status,
-		StatusText:   statusText,
-		CreatedAt:    now.UnixMilli(),
+		ID:               fmt.Sprintf("ck_%s_%s_%s", uid, date, req.Type),
+		CompanyID:        s.Cfg.CompanyID,
+		UserID:           uid,
+		Date:             date,
+		Type:             req.Type,
+		CheckinTime:      now.UnixMilli(),
+		LocationName:     office.Name,
+		Address:          address,
+		Lat:              req.Lat,
+		Lng:              req.Lng,
+		Distance:         distance,
+		InFence:          inFence,
+		FenceSet:         office.Configured,
+		Device:           deviceText(req.DeviceInfo.Model, req.DeviceInfo.UA),
+		Status:           status,
+		StatusText:       statusText,
+		Source:           "normal",
+		LocationSource:   locationSource,
+		LocationAccuracy: locationAccuracy,
+		ClientIP:         clientIP,
+		CreatedAt:        now.UnixMilli(),
 	}
 
 	// 照片必须存下来，"拍照打卡"才有防代打的意义。

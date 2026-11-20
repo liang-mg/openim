@@ -60,6 +60,8 @@ func (s *Server) Router() *gin.Engine {
 
 		g.GET("/checkin/today", s.TodayCheckin)
 		g.GET("/checkin/locate", s.LocateCheckin)
+		// 桌面端无 GPS，系统定位超时后用公网 IP 取城市级坐标兜底
+		g.GET("/checkin/locate-by-ip", s.LocateByIP)
 		g.POST("/checkin/submit", s.SubmitCheckin)
 		g.GET("/checkin/list", s.CheckinList)
 

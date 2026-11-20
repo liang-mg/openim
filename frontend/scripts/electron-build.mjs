@@ -292,7 +292,9 @@ const ensurePnpmTopLevelLinks = (runtimePackageNames) => {
 };
 
 if (!dryRun && !skipBuild) {
-  run(pnpmCommand, ["build"]);
+  // 直接用本地 vite 的 CLI，不依赖 PATH 里的 pnpm.cmd（受限环境常拦截 .cmd 子进程）
+  const viteCli = path.join(repoRoot, "node_modules/vite/bin/vite.js");
+  run(process.execPath, [viteCli, "build"]);
 }
 
 const originalPackageText = readFileSync(packagePath, "utf8");

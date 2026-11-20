@@ -41,8 +41,16 @@ type CheckinRecord struct {
 	StatusText string `json:"status_text" bson:"status_text"`
 	// Source 标明记录来源：normal=现场打卡 / makeup=补卡审批通过后生成。
 	// 前端可据此显示"补卡"小标，但统计上都算一次真实出勤。
-	Source    string `json:"source" bson:"source"`
-	MakeupID  string `json:"makeup_id,omitempty" bson:"makeup_id,omitempty"`
+	Source   string `json:"source" bson:"source"`
+	MakeupID string `json:"makeup_id,omitempty" bson:"makeup_id,omitempty"`
+	// LocationSource 坐标来源：gps=系统定位（精确）/ ip=IP 定位（城市级）。
+	// 桌面端无 GPS 芯片，系统定位常超时，兜底走 IP 定位。
+	// 与 Source（normal/makeup）是两个正交维度，不可复用同一字段。
+	LocationSource string `json:"location_source" bson:"location_source"`
+	// LocationAccuracy 精度：precise=可判范围 / city=城市级，不参与 500m 围栏判定。
+	LocationAccuracy string `json:"location_accuracy" bson:"location_accuracy"`
+	// ClientIP 服务端实际看到的客户端 IP（内网时记服务器出口 IP），供组长审计。
+	ClientIP  string `json:"client_ip,omitempty" bson:"client_ip,omitempty"`
 	CreatedAt int64  `json:"created_at" bson:"created_at"`
 }
 
@@ -82,6 +90,15 @@ type LocateResult struct {
 	InFence  bool       `json:"in_fence"`
 	FenceSet bool       `json:"fence_set"`
 	Office   OfficeInfo `json:"office"`
+	// Source=gps/ip；ip 表示系统定位失败后的城市级兜底。
+	Source string `json:"source"`
+	// Accuracy=precise/city；city 时 Distance/InFence 无意义，前端不得显示"打卡范围内"。
+	Accuracy string `json:"accuracy"`
+	// IP 是本次定位实际使用的公网 IP，便于排查"为什么定位到别的城市"。
+	IP string `json:"ip,omitempty"`
+	// Token 是后端签发的 IP 定位凭证，提交打卡时带回。
+	// 没有它前端就能随便声明 source=ip 绕过严格围栏，所以必须校验。
+	Token string `json:"location_token,omitempty"`
 }
 
 type TodayCheckin struct {
@@ -121,14 +138,14 @@ type MonthStat struct {
 
 // TeamMemberRow 团队考勤表的一行：今天来没来 + 本月表现。
 type TeamMemberRow struct {
-	UserID     string     `json:"user_id"`
-	Name       string     `json:"name"`
-	Department string     `json:"department"`
-	Position   string     `json:"position"`
-	Role       string     `json:"role"`
-	Today      DayStatus  `json:"today"`
-	Month      MonthStat  `json:"month"`
-	Exception  bool       `json:"exception"` // 今日有异常，用于排序与「只看异常」过滤
+	UserID     string    `json:"user_id"`
+	Name       string    `json:"name"`
+	Department string    `json:"department"`
+	Position   string    `json:"position"`
+	Role       string    `json:"role"`
+	Today      DayStatus `json:"today"`
+	Month      MonthStat `json:"month"`
+	Exception  bool      `json:"exception"` // 今日有异常，用于排序与「只看异常」过滤
 }
 
 // TeamCheckinSummary 团队当天的一行汇总，给组长一眼看规模。
@@ -141,13 +158,13 @@ type TeamCheckinSummary struct {
 }
 
 type TeamCheckinResult struct {
-	Scope    string              `json:"scope"`
-	Month    string              `json:"month"`
-	Date     string              `json:"date"`
-	Rule     CheckinRule         `json:"rule"`
-	Warnings []string            `json:"warnings"`
-	Summary  TeamCheckinSummary  `json:"summary"`
-	Members  []TeamMemberRow     `json:"members"`
+	Scope    string             `json:"scope"`
+	Month    string             `json:"month"`
+	Date     string             `json:"date"`
+	Rule     CheckinRule        `json:"rule"`
+	Warnings []string           `json:"warnings"`
+	Summary  TeamCheckinSummary `json:"summary"`
+	Members  []TeamMemberRow    `json:"members"`
 }
 
 // ReportRow 出勤报表的一行（一个人）。
@@ -184,24 +201,24 @@ type AttendanceReport struct {
 // LeaveRequest 请假/出差申请：不可变记录，只改 status 不改内容。
 // 批准不写 oa_checkin（请假日不是"打了卡"），只影响考勤统计口径。
 type LeaveRequest struct {
-	ID          string `json:"leave_id" bson:"leave_id"`
-	CompanyID   string `json:"-" bson:"company_id"`
-	UserID      string `json:"user_id" bson:"user_id"`
-	UserName    string `json:"user_name" bson:"user_name"`
-	Department  string `json:"department" bson:"department"`
-	Type        string `json:"type" bson:"type"` // personal/sick/annual/compoff/business
-	StartDate   string `json:"start_date" bson:"start_date"`
-	EndDate     string `json:"end_date" bson:"end_date"`
-	Days        int    `json:"days" bson:"days"` // 工作日天数，周末不计
-	Reason      string `json:"reason" bson:"reason"`
-	Status      string `json:"status" bson:"status"` // pending/approved/rejected/cancelled
-	ApproverID  string `json:"approver_id" bson:"approver_id"`
+	ID           string `json:"leave_id" bson:"leave_id"`
+	CompanyID    string `json:"-" bson:"company_id"`
+	UserID       string `json:"user_id" bson:"user_id"`
+	UserName     string `json:"user_name" bson:"user_name"`
+	Department   string `json:"department" bson:"department"`
+	Type         string `json:"type" bson:"type"` // personal/sick/annual/compoff/business
+	StartDate    string `json:"start_date" bson:"start_date"`
+	EndDate      string `json:"end_date" bson:"end_date"`
+	Days         int    `json:"days" bson:"days"` // 工作日天数，周末不计
+	Reason       string `json:"reason" bson:"reason"`
+	Status       string `json:"status" bson:"status"` // pending/approved/rejected/cancelled
+	ApproverID   string `json:"approver_id" bson:"approver_id"`
 	ApproverName string `json:"approver_name" bson:"approver_name"`
-	Comment     string `json:"comment" bson:"comment"`
-	SubmittedAt int64  `json:"submitted_at" bson:"submitted_at"`
-	ApprovedAt  int64  `json:"approved_at" bson:"approved_at"`
-	CreatedAt   int64  `json:"created_at" bson:"created_at"`
-	UpdatedAt   int64  `json:"updated_at" bson:"updated_at"`
+	Comment      string `json:"comment" bson:"comment"`
+	SubmittedAt  int64  `json:"submitted_at" bson:"submitted_at"`
+	ApprovedAt   int64  `json:"approved_at" bson:"approved_at"`
+	CreatedAt    int64  `json:"created_at" bson:"created_at"`
+	UpdatedAt    int64  `json:"updated_at" bson:"updated_at"`
 }
 
 // MakeupRequest 补卡申请：批准后生成 source=makeup 的 oa_checkin 记录。
@@ -292,11 +309,11 @@ type ExceptionSummary struct {
 }
 
 type ExceptionListResult struct {
-	Scope    string               `json:"scope"`
-	Month    string               `json:"month"`
-	Summary  ExceptionSummary     `json:"summary"`
-	Total    int                  `json:"total"`
-	List     []CheckinException   `json:"list"`
+	Scope   string             `json:"scope"`
+	Month   string             `json:"month"`
+	Summary ExceptionSummary   `json:"summary"`
+	Total   int                `json:"total"`
+	List    []CheckinException `json:"list"`
 }
 
 // ScanResult 一次扫描的结果，给手动触发的人看"补了几条/什么时候扫的"
@@ -335,25 +352,25 @@ type AttendanceRule struct {
 // ApprovalItem 审批中心的统一条目。四类申请各自有一张源表，
 // 这里只做视图聚合，不落库——落一份副本迟早会和源表对不上。
 type ApprovalItem struct {
-	Kind      string `json:"kind"` // leave/makeup/exception/report
-	KindText  string `json:"kind_text"`
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
-	UserName  string `json:"user_name"`
+	Kind       string `json:"kind"` // leave/makeup/exception/report
+	KindText   string `json:"kind_text"`
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	UserName   string `json:"user_name"`
 	Department string `json:"department"`
-	Title     string `json:"title"`
-	Subtitle  string `json:"subtitle"`
-	Status    string `json:"status"`
-	Time      int64  `json:"time"` // 提交时间，列表按它倒序
-	CanApprove bool  `json:"can_approve"`
-	Path      string `json:"path"`
+	Title      string `json:"title"`
+	Subtitle   string `json:"subtitle"`
+	Status     string `json:"status"`
+	Time       int64  `json:"time"` // 提交时间，列表按它倒序
+	CanApprove bool   `json:"can_approve"`
+	Path       string `json:"path"`
 }
 
 type ApprovalListResult struct {
-	Tab      string         `json:"tab"`
-	Total    int            `json:"total"`
-	List     []ApprovalItem `json:"list"`
-	Pending  int            `json:"pending"` // 待我处理总数，工作台直接取这个
+	Tab     string         `json:"tab"`
+	Total   int            `json:"total"`
+	List    []ApprovalItem `json:"list"`
+	Pending int            `json:"pending"` // 待我处理总数，工作台直接取这个
 }
 
 // SubmitRateRow 日报提交率的一行（按部门聚合）

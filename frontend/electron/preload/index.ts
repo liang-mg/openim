@@ -3,6 +3,7 @@ import path from "path";
 import { DataPath, IElectronAPI } from "./../../src/types/globalExpose.d";
 import { contextBridge, ipcRenderer } from "electron";
 import { isProd } from "../utils";
+import type { IpLocation } from "../utils/publicIp";
 import "@openim/electron-client-sdk/lib/preload";
 import { Platform } from "@openim/wasm-client-sdk";
 
@@ -113,6 +114,7 @@ const Api: IElectronAPI = {
   ipcSendSync,
   getFileByPath,
   saveFileToDisk,
+  getIpLocation: () => ipcInvoke<IpLocation | null>("getIpLocation"),
 };
 
 contextBridge.exposeInMainWorld("electronAPI", Api);

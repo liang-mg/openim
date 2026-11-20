@@ -106,3 +106,11 @@ export function placeText(r?: CheckinRecord | null) {
   if (r.lat && r.lng) return `${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}`;
   return "";
 }
+
+/**
+ * 定位来源文案，本人/组长/HR 各页面共用同一套口径。
+ * 只对 IP 兜底做标记——它只有城市级精度，不能和 GPS 现场打卡混为一谈。
+ */
+export function ipLocationTag(r?: CheckinRecord | null) {
+  return r?.location_source === "ip" ? "IP 定位" : "";
+}

@@ -13,7 +13,7 @@
 | # | 模块 | 一句话能力 | 页面入口 | 主要使用者 |
 |---|---|---|---|---|
 | 1 | 工作台 | 真实待办（6 类）+ 今日打卡状态 + 日报状态 | `#/work` | 全员 |
-| 2 | 拍照打卡 | 真实 GPS + 服务端判围栏 + 照片水印上传 | `#/checkin` | 全员 |
+| 2 | 拍照打卡 | 真实 GPS + 服务端判围栏 + 照片水印；桌面端 GPS 超时自动 IP 兜底 | `#/checkin` | 全员 |
 | 3 | 出勤记录 | 我的 / 团队 / 报表 / 全公司四档，月历 + CSV | `#/attendance` | 全员（按权限出档） |
 | 4 | 请假申请 | 提交 → 组长批 → 计入考勤口径 | `#/leave` | 全员 |
 | 5 | 补卡申请 | 忘打卡补录，通过后生成真实打卡记录 | `#/leave`（补卡页签） | 全员 |
@@ -26,11 +26,11 @@
 | 12 | 员工与权限 | 加人 / 改角色 / 设直属上级 / 停用 | `#/oa-admin` | 管理员 |
 | 13 | 文件服务 | MinIO 存附件与打卡照片，签名下载，越权 403 | 页面内嵌入 | 全员 |
 
-**后端接口 45 个**（2 个公开 + 43 个需登录），**MongoDB 集合 9 张**，全部在 `openim_v3` 库、强制带 `company_id` 隔离。
+**后端接口 46 个**（2 个公开 + 44 个需登录），**MongoDB 集合 9 张**，全部在 `openim_v3` 库、强制带 `company_id` 隔离。
 
 **登录方式（2026-11-20 改）**：账号（手机号）+ 密码，邮箱与验证码入口已移除。账号与密码归 IM 管，OA 只复用 chatToken、只存组织关系；六个测试账号与角色见 `docs/OA测试账号与权限说明.md`。管理后台可以给已注册的 IM 账号建档、设角色和上级，停用账号的旧 token 会立即失效。
 
-**桌面端（2026-11-20 新增）**：同一份前端可打 Windows NSIS / macOS dmg 安装包，功能与 Web 端完全一致。同事安装后在登录页填一个服务器域名（自动派生 6 个服务地址）即可使用；Web 端行为不变。打包、分发、地址配置见 `docs/桌面端部署与分发.md` 和 `docs/桌面端-运行时服务器配置设计.md`。
+**桌面端（2026-11-20 新增）**：同一份前端可打 Windows NSIS / macOS dmg 安装包，功能与 Web 端完全一致。服务器地址已内置在程序里，登录页只有账号和密码，不再让同事填地址；Web 端行为不变。桌面端没有 GPS 芯片，系统定位超时会自动用本机公网 IP 做城市级兜底（不判 500 米围栏，来源对组长可见）。打包、分发、地址配置见 `docs/桌面端部署与分发.md` 和 `docs/桌面端-运行时服务器配置设计.md`；定位兜底设计见 `docs/打卡定位-桌面端IP兜底设计.md`。
 
 ---
 
@@ -62,8 +62,9 @@
   - 打卡点默认**不预设**：`XINBO_OA_OFFICE_*` 为空时只记录坐标、不判范围，也不显示任何虚构公司名/地址；部署方填了才启用 500 米围栏。
 - **防重复**：同一人同一天同类型（上班/下班）只能一条，重复提交拒绝。
 - **可回看**：打卡页时间轴可查看当天照片；组长可调阅组员照片（与日报同一套汇报链权限）。
-- **接口**：`GET /checkin/today`、`GET /checkin/locate`、`POST /checkin/submit`、`GET /checkin/list`
-- **表**：`oa_checkin`（`type` on/off、`checkin_time`、经纬度、`distance`、`in_fence`、`photo_url`、`photo_file_id`、`device_info`、`source`、`makeup_id`）
+- **桌面端 IP 兜底**：系统 GPS 超时/失败时，主进程查本机公网 IP + 城市坐标，后端签发凭证后以城市级坐标打卡；`location_accuracy=city` 的记录不判 500 米围栏，组长视角显示「IP 定位」标记。详见 `docs/打卡定位-桌面端IP兜底设计.md`。
+- **接口**：`GET /checkin/today`、`GET /checkin/locate`、`GET /checkin/locate-by-ip`、`POST /checkin/submit`、`GET /checkin/list`
+- **表**：`oa_checkin`（`type` on/off、`checkin_time`、经纬度、`distance`、`in_fence`、`photo_url`、`photo_file_id`、`device_info`、`source`、`makeup_id`、`location_source`、`location_accuracy`、`client_ip`）
 
 ### 3. 出勤记录 `#/attendance`
 

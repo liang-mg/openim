@@ -19,6 +19,7 @@ import {
   fmtDate,
   fmtDistance,
   fmtTime,
+  ipLocationTag,
   placeText,
   shiftMonth,
   statusColor,
@@ -317,11 +318,15 @@ export const Attendance = () => {
                         <span className={styles["att-row-place"]}>
                           {rec ? placeText(rec) || "—" : "—"}
                         </span>
-                        {rec?.fence_set && !rec.in_fence && !!rec.distance && (
-                          <span className={styles["att-out-fence"]}>
-                            范围外 {fmtDistance(rec.distance)}
-                          </span>
-                        )}
+                        {ipLocationTag(rec) && <Tag color="blue">IP 定位</Tag>}
+                        {rec?.location_accuracy === "precise" &&
+                          rec.fence_set &&
+                          !rec.in_fence &&
+                          !!rec.distance && (
+                            <span className={styles["att-out-fence"]}>
+                              范围外 {fmtDistance(rec.distance)}
+                            </span>
+                          )}
                         {rec?.photo_url && (
                           <span className={styles["att-photo-link"]} onClick={() => openPhoto(rec)}>
                             查看照片

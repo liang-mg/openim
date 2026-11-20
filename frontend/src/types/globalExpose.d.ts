@@ -14,6 +14,13 @@ export interface IElectronAPI {
   ipcSendSync: <T = unknown>(channel: string, ...args: unknown[]) => T;
   saveFileToDisk: (params: { file: File; sync?: boolean }) => Promise<string>;
   getFileByPath: (filePath: string) => Promise<File | null>;
+  /** 桌面端本机公网 IPv4 + 城市级坐标，拿不到返回 null；网页端不存在这个 API */
+  getIpLocation?: () => Promise<{
+    ip: string;
+    lat: number;
+    lng: number;
+    address: string;
+  } | null>;
 }
 
 declare global {

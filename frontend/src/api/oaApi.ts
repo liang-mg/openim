@@ -35,6 +35,12 @@ export interface CheckinRecord {
   in_fence?: boolean;
   /** 打卡时是否配置了打卡点；false 表示只记录了坐标、没判范围 */
   fence_set?: boolean;
+  /** 坐标来源：gps=系统定位 / ip=IP 定位（城市级） */
+  location_source?: "gps" | "ip";
+  /** precise=精确可判范围 / city=城市级，不参与围栏判定 */
+  location_accuracy?: "precise" | "city";
+  /** 服务端记录的客户端公网 IP（组长审计用） */
+  client_ip?: string;
 }
 
 /** 打卡点：坐标与半径由服务端下发，前端只用于展示 */
@@ -57,6 +63,14 @@ export interface LocateResult {
   in_fence: boolean;
   fence_set: boolean;
   office: OfficeInfo;
+  /** gps=系统定位 / ip=IP 定位兜底 */
+  source: "gps" | "ip";
+  /** precise=可判 500m 围栏 / city=城市级，不判围栏 */
+  accuracy: "precise" | "city";
+  /** 实际使用的公网 IP */
+  ip?: string;
+  /** IP 定位凭证，提交打卡时后端要校验 */
+  location_token?: string;
 }
 
 export interface TodayCheckin {
@@ -174,6 +188,9 @@ export interface SubmitCheckinParams {
   lat?: number;
   lng?: number;
   location_name?: string;
+  /** 与 LocateResult.source 一致，后端会用 location_token 校验，前端声明不算数 */
+  location_source?: "gps" | "ip";
+  location_token?: string;
   device_info?: { model?: string; ua?: string };
 }
 
@@ -479,6 +496,26 @@ export async function getTodayCheckin(): Promise<TodayCheckin> {
  */
 export async function locateCheckin(lat: number, lng: number): Promise<LocateResult> {
   return get<LocateResult>("/checkin/locate", { lat, lng });
+}
+
+/** 桌面端主进程查到的本机公网 IP 与城市级坐标 */
+export interface IpLocationHint {
+  ip: string;
+  lat: number;
+  lng: number;
+  address: string;
+}
+
+/**
+ * 桌面端没有 GPS 时的兜底：用公网 IP 取城市级坐标，不判 500m 围栏。
+ * 桌面端主进程能直接查 IP 库，把结果传上来；后端只校验和签发凭证，
+ * 不必访问外部 IP 服务。网页端没这个能力，不传让后端自己取。
+ */
+export async function locateCheckinByIp(hint?: IpLocationHint | null): Promise<LocateResult> {
+  const params: Record<string, unknown> = hint
+    ? { ip: hint.ip, lat: hint.lat, lng: hint.lng, address: hint.address }
+    : {};
+  return get<LocateResult>("/checkin/locate-by-ip", params);
 }
 
 export async function submitCheckin(params: SubmitCheckinParams): Promise<CheckinRecord> {

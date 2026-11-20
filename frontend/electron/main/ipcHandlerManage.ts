@@ -11,6 +11,7 @@ import { t } from "i18next";
 import { IpcRenderToMain } from "../constants";
 import { getStore } from "./storeManage";
 import { changeLanguage } from "../i18n";
+import { getIpLocation } from "../utils/publicIp";
 
 const store = getStore();
 
@@ -18,6 +19,9 @@ export const setIpcMainListener = () => {
   ipcMain.handle(IpcRenderToMain.clearSession, () => {
     clearCache();
   });
+
+  // 打卡 IP 兜底：由客户端取自己的公网 IP + 城市坐标，避免后端误把机房出口当成员工位置
+  ipcMain.handle("getIpLocation", () => getIpLocation());
 
   // window manage
   ipcMain.handle("changeLanguage", (_, locale) => {

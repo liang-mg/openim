@@ -15,13 +15,22 @@ import {
   getFileLink,
   getTodayCheckin,
   locateCheckin,
+  locateCheckinByIp,
   submitCheckin,
   type CheckinRecord,
   type CheckinType,
   type LocateResult,
   type TodayCheckin,
 } from "@/api/oaApi";
-import { fmtDate, fmtDistance, fmtTime, placeText, statusColor, ymd } from "@/pages/checkin/utils";
+import {
+  fmtDate,
+  fmtDistance,
+  fmtTime,
+  ipLocationTag,
+  placeText,
+  statusColor,
+  ymd,
+} from "@/pages/checkin/utils";
 import { useUserStore } from "@/store";
 
 import styles from "./index.module.scss";
@@ -75,11 +84,28 @@ export const Checkin = () => {
     setToday(await getTodayCheckin());
   };
 
-  // 真实定位：浏览器 GPS 坐标 → 服务端换地址 + 算距离。
-  // 必须由用户手势或页面加载触发，且页面要在 HTTPS（或 localhost）下才有权限。
+  // 真实定位：系统 GPS 坐标 → 服务端换地址 + 算距离。
+  // 桌面端没有 GPS 芯片，系统定位在国内 Windows 上基本都会超时，
+  // 所以失败后自动降级到 IP 定位（城市级，不判 500m 围栏），不让员工卡在打卡页。
   const requestLocation = useCallback(() => {
+    const fallbackToIp = async (reason: string) => {
+      try {
+        // 桌面端主进程直接查本机公网 IP + 城市坐标；网页端没这个 API，让后端自己查
+        const hint = (await window.electronAPI?.getIpLocation?.()) || undefined;
+        const data = await locateCheckinByIp(hint);
+        setLoc({ status: "ok", data });
+      } catch (e) {
+        setLoc({
+          status: "error",
+          message: `${reason}；IP 定位也未成功：${
+            e instanceof Error ? e.message : "请稍后重试"
+          }`,
+        });
+      }
+    };
+
     if (!navigator.geolocation) {
-      setLoc({ status: "error", message: "当前浏览器不支持定位，请更换浏览器" });
+      void fallbackToIp("当前环境不支持系统定位");
       return;
     }
     setLoc({ status: "locating" });
@@ -89,13 +115,10 @@ export const Checkin = () => {
           const data = await locateCheckin(pos.coords.latitude, pos.coords.longitude);
           setLoc({ status: "ok", data });
         } catch (e) {
-          setLoc({
-            status: "error",
-            message: e instanceof Error ? e.message : "定位解析失败，请重试",
-          });
+          void fallbackToIp(e instanceof Error ? e.message : "定位解析失败");
         }
       },
-      (err) => setLoc({ status: "error", message: geoErrText(err) }),
+      (err) => void fallbackToIp(geoErrText(err)),
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
     );
   }, []);
@@ -201,11 +224,22 @@ export const Checkin = () => {
         photo,
         lat: loc.data.lat,
         lng: loc.data.lng,
-        device_info: { model: "Web", ua: navigator.userAgent },
+        location_source: loc.data.source,
+        location_token: loc.data.location_token,
+        device_info: {
+          model: window.electronAPI ? "Desktop" : "Web",
+          ua: navigator.userAgent,
+        },
       });
+      // IP 定位只有城市级精度，不判围栏，也不能显示"范围内/范围外"。
       const fenceTip =
-        res.fence_set && !res.in_fence ? `，超出打卡范围 ${fmtDistance(res.distance || 0)}` : "";
-      message.success(`${type === "on" ? "上班" : "下班"}打卡成功（${res.status_text}${fenceTip}）`);
+        res.location_accuracy === "precise" && res.fence_set && !res.in_fence
+          ? `，超出打卡范围 ${fmtDistance(res.distance || 0)}`
+          : "";
+      const sourceTip = res.location_source === "ip" ? "，IP 定位（城市级）" : "";
+      message.success(
+        `${type === "on" ? "上班" : "下班"}打卡成功（${res.status_text}${fenceTip}${sourceTip}）`,
+      );
       setPhoto(undefined);
       await refresh();
     } catch (e) {
@@ -228,6 +262,14 @@ export const Checkin = () => {
         </Tag>
       );
     if (loc.status !== "ok") return null;
+    // IP 定位只有城市级精度，不能冒充"打卡范围内"
+    if (loc.data.accuracy === "city") {
+      return (
+        <Tag color="blue" className={styles["fence-tag"]}>
+          IP 定位
+        </Tag>
+      );
+    }
     // 没配打卡点就没有「范围」可言，别硬造一个「正常」出来
     if (!loc.data.fence_set) {
       return (
@@ -262,7 +304,20 @@ export const Checkin = () => {
       );
     }
     if (loc.status === "ok") {
-      const { distance, address, lat, lng, fence_set } = loc.data;
+      const { distance, address, lat, lng, fence_set, accuracy, ip } = loc.data;
+      if (accuracy === "city") {
+        return (
+          <>
+            <div className={styles["location-sub"]}>
+              IP 定位（城市级），不判定打卡范围{address ? ` · ${address}` : ""}
+            </div>
+            <div className={styles["location-meta"]}>
+              {ip ? `公网 IP ${ip} · ` : ""}
+              <a onClick={requestLocation}>重新定位</a>
+            </div>
+          </>
+        );
+      }
       return (
         <>
           <div className={styles["location-sub"]}>
@@ -386,11 +441,19 @@ export const Checkin = () => {
                     </div>
                     <div className={styles["timeline-time"]}>
                       {fmtTime(today?.on?.checkin_time)}
-                      {today?.on?.fence_set && !today.on.in_fence && !!today.on.distance && (
-                        <span className={styles["out-fence"]}>
-                          范围外 {fmtDistance(today.on.distance)}
-                        </span>
+                      {ipLocationTag(today?.on) && (
+                        <Tag color="blue" className={styles["fence-tag"]}>
+                          IP 定位
+                        </Tag>
                       )}
+                      {today?.on?.location_accuracy === "precise" &&
+                        today.on.fence_set &&
+                        !today.on.in_fence &&
+                        !!today.on.distance && (
+                          <span className={styles["out-fence"]}>
+                            范围外 {fmtDistance(today.on.distance)}
+                          </span>
+                        )}
                       {today?.on?.photo_url && (
                         <span className={styles["photo-link"]} onClick={() => openPhoto(today.on)}>
                           查看照片
@@ -415,11 +478,19 @@ export const Checkin = () => {
                     </div>
                     <div className={styles["timeline-time"]}>
                       {fmtTime(today?.off?.checkin_time)}
-                      {today?.off?.fence_set && !today.off.in_fence && !!today.off.distance && (
-                        <span className={styles["out-fence"]}>
-                          范围外 {fmtDistance(today.off.distance)}
-                        </span>
+                      {ipLocationTag(today?.off) && (
+                        <Tag color="blue" className={styles["fence-tag"]}>
+                          IP 定位
+                        </Tag>
                       )}
+                      {today?.off?.location_accuracy === "precise" &&
+                        today.off.fence_set &&
+                        !today.off.in_fence &&
+                        !!today.off.distance && (
+                          <span className={styles["out-fence"]}>
+                            范围外 {fmtDistance(today.off.distance)}
+                          </span>
+                        )}
                       {today?.off?.photo_url && (
                         <span className={styles["photo-link"]} onClick={() => openPhoto(today.off)}>
                           查看照片
