@@ -24,6 +24,7 @@
 | `base/` | 服务编排 `docker-compose.yaml` + `config/` | 随仓库附带的编排快照 |
 | `frontend/` | **完整前端源码，已含全部 OA 页面**，可直接构建镜像 | 已应用 `frontend-patch/` 的改动 |
 | `frontend-patch/` | OA 页面与改动文件清单（对账用，`frontend/` 已应用） | 前端改动的原始补丁记录 |
+| `frontend-custom/` | **管理后台（11002）「新博」品牌覆盖**：`admin/` 覆盖产物 + `brand/` 图标源与生成图 | 由官方 admin 镜像产物打补丁生成，可重复生成 |
 | `docs/` | OA 设计文档、排期、账号说明、日报 | 自建 |
 | `scripts/` | OA 接口/UI 回归脚本 + 前端双向同步脚本 | 自建 |
 | `config-template/` | 脱敏的环境变量模板 | 自建 |
@@ -98,8 +99,11 @@ node scripts/sync-frontend.mjs to-local     # 同事提交后你 pull，再同�
 ```bash
 git clone https://github.com/liang-mg/openim.git && cd openim
 bash deploy/deploy.sh bootstrap
-# 打开 http://127.0.0.1:5173
+# OA 网页版:   http://127.0.0.1:5173
+# 管理后台:    http://127.0.0.1:11002  （已是「新博」品牌）
 ```
+
+`bootstrap` 会同时拉起后端、OA 网页版、管理后台三个服务，管理后台的品牌覆盖（`frontend-custom/`）随仓库一起分发，同事无需手动打补丁。
 
 日常运维、生产配置、功能开关、故障排查都在 DEPLOY.md，本文不重复，避免两边不同步。
 

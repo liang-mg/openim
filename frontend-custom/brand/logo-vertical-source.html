@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 224px; height: 316px; background: transparent; }
+  .wrap {
+    width: 224px; height: 316px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px;
+  }
+  .mark {
+    width: 128px; height: 128px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #1677ff 0%, #3f9bff 55%, #63b8ff 100%);
+    border-radius: 30px;
+    position: relative; overflow: hidden;
+  }
+  .mark::after {
+    content: ""; position: absolute; left: -38px; top: -76px;
+    width: 115px; height: 152px;
+    background: radial-gradient(closest-side, rgba(255,255,255,.28), rgba(255,255,255,0));
+    transform: rotate(18deg);
+  }
+  .mark span {
+    position: relative; color: #fff;
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+    font-weight: 700; font-size: 46px; line-height: 1; letter-spacing: 2px; padding-left: 2px;
+  }
+  .name {
+    color: #1677ff;
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+    font-weight: 700; font-size: 30px; line-height: 1; letter-spacing: 4px; padding-left: 4px;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="mark"><span>新博</span></div>
+    <div class="name">新博</div>
+  </div>
+</body>
+</html>

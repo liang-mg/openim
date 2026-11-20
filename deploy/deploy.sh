@@ -27,6 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"              # oa-custom 根目录
 BASE_DIR="$OA_DIR/base"                             # 仓库自带的官方底座（compose + config）
 COMPOSE_OA="$OA_DIR/deploy/docker-compose.oa.yaml"
+COMPOSE_BRAND="$OA_DIR/deploy/docker-compose.brand.yaml"   # 管理后台「新博」品牌覆盖
 ENV_FILE="${OA_ENV:-$OA_DIR/.env}"
 ENV_TEMPLATE="$OA_DIR/config-template/oa.env.example"
 
@@ -44,10 +45,11 @@ detect_compose() {
   fail "未找到底座 compose（$BASE_DIR/docker-compose.yaml），检查仓库是否完整。"
 }
 
-# compose 统一入口：官方 + OA override
+# compose 统一入口：官方底座 + OA override + 管理后台品牌 override
+# 相对路径以第一个 -f（base/）为基准，品牌编排里的 ../frontend-custom 即仓库根。
 compose() {
   local base; base="$(detect_compose)"
-  docker compose -f "$base" -f "$COMPOSE_OA" "$@"
+  docker compose -f "$base" -f "$COMPOSE_OA" -f "$COMPOSE_BRAND" "$@"
 }
 
 preflight() {
@@ -56,9 +58,11 @@ preflight() {
   docker info >/dev/null 2>&1 || fail "Docker 未运行，请先启动 Docker。"
   # Go 编译已内置到 Dockerfile 多阶段构建，宿主机无需安装 Go
   [ -f "$COMPOSE_OA" ] || fail "缺少 $COMPOSE_OA，检查仓库是否完整。"
+  [ -f "$COMPOSE_BRAND" ] || fail "缺少 $COMPOSE_BRAND，检查仓库是否完整。"
+  [ -f "$OA_DIR/frontend-custom/admin/umi.8cd017f3.js" ] || fail "缺少管理后台品牌覆盖文件 frontend-custom/admin/，检查仓库是否完整。"
   [ -f "$ENV_TEMPLATE" ] || fail "缺少配置模板 $ENV_TEMPLATE。"
   [ -f "$(detect_compose)" ] || fail "底座 compose 不存在（$BASE_DIR）。"
-  ok "docker / compose / 模板 均就绪（Go 编译在镜像内完成，无需本地安装）"
+  ok "docker / compose / 模板 / 后台品牌覆盖 均就绪（Go 编译在镜像内完成，无需本地安装）"
   ok "底座目录: $BASE_DIR"
   ok "OA 仓库:   $OA_DIR"
 }
@@ -139,8 +143,8 @@ do_bootstrap() {
   docker compose -f "$base" --env-file "$ENV_FILE" up -d mongo minio \
     || fail "mongo/minio 启动失败，检查 $ENV_FILE 密码配置。"
 
-  step "启动 OA 服务 + 前端"
-  compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web \
+  step "启动 OA 服务 + 前端 + 管理后台"
+  compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web openim-admin-front \
     || fail "OA 服务启动失败，执行 deploy.sh logs 查看日志。"
 
   verify
@@ -150,6 +154,7 @@ do_bootstrap() {
   echo "  前端页面:   http://127.0.0.1:${XINBO_OA_WEB_PORT:-5173}"
   echo "  后端健康:   http://127.0.0.1:${XINBO_OA_PORT:-10010}/oa/api/v1/healthz"
   echo "  验证接口:   curl http://127.0.0.1:${XINBO_OA_WEB_PORT:-5173}/oa/api/v1/healthz"
+  echo "  管理后台:   http://127.0.0.1:${OPENIM_ADMIN_FRONT_PORT:-11002}（新博品牌）"
   echo "  回归脚本:   node scripts/oa_e2e_check.js（需设 OA_TOKEN_SECRET/MONGO_PASSWORD）"
   echo "  登录验证码: 666666（需 IM 服务 openim-server/openim-chat 已启动）"
   echo "============================================================"
@@ -188,6 +193,25 @@ verify() {
   else
     warn "前端 /oa 反代未通，检查 oa-web 与 xinbo-oa 是否同在 openim 网络。"
   fi
+
+  # 管理后台：11002 首页可访问，且品牌覆盖生效（title 为新博）
+  local admin_port; admin_port="$(grep -E '^OPENIM_ADMIN_FRONT_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r')"
+  admin_port="${admin_port:-11002}"
+  local admin_ok=0
+  for i in $(seq 1 20); do
+    local admin_html; admin_html="$(curl -fsS "http://127.0.0.1:${admin_port}/" 2>/dev/null)"
+    if printf '%s' "$admin_html" | grep -qi '<html'; then
+      ok "管理后台可访问: http://127.0.0.1:${admin_port}"
+      if printf '%s' "$admin_html" | grep -q '<title>新博</title>'; then
+        ok "管理后台品牌覆盖生效（title=新博）"
+      else
+        warn "管理后台品牌未生效，检查 frontend-custom/admin/ 挂载与 docker-compose.brand.yaml。"
+      fi
+      admin_ok=1; break
+    fi
+    sleep 2
+  done
+  [ "$admin_ok" -eq 1 ] || warn "管理后台暂不可访问（${admin_port}），执行 deploy.sh logs openim-admin-front 查看。"
 }
 
 cmd="${1:-bootstrap}"
@@ -196,11 +220,11 @@ case "$cmd" in
   build)     do_build ;;
   up)
     preflight
-    compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web
+    compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web openim-admin-front
     verify
     ;;
   down)      preflight; compose --env-file "$ENV_FILE" down ;;
-  restart)   preflight; compose --env-file "$ENV_FILE" restart xinbo-oa oa-web; verify ;;
+  restart)   preflight; compose --env-file "$ENV_FILE" restart xinbo-oa oa-web openim-admin-front; verify ;;
   status)    preflight; compose --env-file "$ENV_FILE" ps ;;
   logs)      preflight; compose --env-file "$ENV_FILE" logs -f --tail=200 "${2:-xinbo-oa}" ;;
   verify)    preflight; verify ;;

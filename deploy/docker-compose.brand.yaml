@@ -1,0 +1,28 @@
+# ============================================================================
+# 管理后台（openim-admin-front，11002）品牌覆盖编排
+#
+# 官方 admin 是 Umi 构建产物，品牌 logo / 文案都写在构建产物里。
+# 这里按文件名挂载「新博」覆盖产物，不修改官方镜像本身。
+#
+# 加载方式：由 deploy/deploy.sh 的 compose() 统一加载，无需手动 -f。
+#   docker compose -f base/docker-compose.yaml \
+#                  -f deploy/docker-compose.oa.yaml \
+#                  -f deploy/docker-compose.brand.yaml ...
+#
+# 相对路径说明：Compose 以第一个 -f（base/）为基准解析相对路径，
+#   故这里写 ../frontend-custom/... 指向仓库根的 frontend-custom 目录。
+#
+# 升级注意：umi.*.js 文件名带 hash，官方镜像升级后若 hash 变化，
+#   需重跑 scripts/patch_brand_admin.js 重新生成（脚本从新镜像读原文件），
+#   并同步更新本文件的挂载文件名与 scripts 里的 TARGETS。
+# ============================================================================
+services:
+  openim-admin-front:
+    volumes:
+      - ../frontend-custom/admin/index.html:/usr/share/nginx/html/index.html:ro
+      - ../frontend-custom/admin/umi.8cd017f3.js:/usr/share/nginx/html/umi.8cd017f3.js:ro
+      - ../frontend-custom/admin/t__plugin-layout__Layout.a335d05b.async.js:/usr/share/nginx/html/t__plugin-layout__Layout.a335d05b.async.js:ro
+      - ../frontend-custom/admin/icon.png:/usr/share/nginx/html/icons/icon.png:ro
+      - ../frontend-custom/admin/icon-512x512.png:/usr/share/nginx/html/icons/icon-512x512.png:ro
+      - ../frontend-custom/admin/icon-192x192.png:/usr/share/nginx/html/icons/icon-192x192.png:ro
+      - ../frontend-custom/admin/icon-128x128.png:/usr/share/nginx/html/icons/icon-128x128.png:ro

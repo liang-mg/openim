@@ -42,9 +42,13 @@ openim/
 bash deploy/deploy.sh bootstrap
 ```
 
-脚本自动完成：预检 → 生成 `.env` 和随机密钥 → 构建后端/前端两个镜像（Go 和 pnpm 都在镜像里跑）→ 启动 mongo/minio → 启动 OA 服务 + 前端 → 健康检查。看到 `OA 环境已就绪` 即成功。
+脚本自动完成：预检 → 生成 `.env` 和随机密钥 → 构建后端/前端两个镜像（Go 和 pnpm 都在镜像里跑）→ 启动 mongo/minio → 启动 OA 服务 + 前端 + 管理后台 → 健康检查。看到 `OA 环境已就绪` 即成功。
 
-浏览器打开 **http://127.0.0.1:5173**。
+浏览器打开：
+- **OA 网页版：http://127.0.0.1:5173**
+- **管理后台：http://127.0.0.1:11002**（已是「新博」品牌，logo / 标题 / 欢迎语均已替换，无需手动打补丁）
+
+> 管理后台的品牌覆盖文件在 `frontend-custom/admin/`，随仓库分发。它是官方 admin 镜像（Umi 构建产物）按文件名挂载覆盖，不修改官方镜像；`deploy/docker-compose.brand.yaml` 声明这些挂载，`deploy.sh` 自动加载。若浏览器仍显示旧品牌，按 `Ctrl+F5` 强刷清缓存。
 
 用**账号（手机号）+ 密码**登录，六个测试账号的密码见 `docs/OA测试账号与权限说明.md`（需要 IM 服务 openim-server / openim-chat 已启动）。新环境先在 IM 侧建账号，再到 OA「员工与权限」建档并指定上级。
 
@@ -59,12 +63,14 @@ cd deploy
 bash deploy.sh status          # 所有容器状态
 bash deploy.sh logs            # 后端日志
 bash deploy.sh logs oa-web     # 前端日志
-bash deploy.sh verify          # 健康检查
-bash deploy.sh up              # 启动 OA 服务 + 前端
+bash deploy.sh verify          # 健康检查（含管理后台 11002 品牌检查）
+bash deploy.sh up              # 启动 OA 服务 + 前端 + 管理后台
 bash deploy.sh down            # 停止（不动数据卷）
 bash deploy.sh restart         # 重启
 bash deploy.sh build           # 改代码后重新构建两个镜像
 ```
+
+> `up` / `restart` 会带上管理后台（`openim-admin-front`）；品牌覆盖由 `deploy/docker-compose.brand.yaml` 自动挂载。要单独看后台日志：`bash deploy.sh logs openim-admin-front`。
 
 ---
 
