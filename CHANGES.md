@@ -82,3 +82,20 @@
 - 8 个 UI 回归脚本：去掉写死的 `D:/work/...`、`C:/Program Files/...` 路径，改走公共库；同事 clone 后只需在 `frontend/` 执行 `pnpm i` 即可跑。实跑 `oa_attendance_ui_check.js` 验证 **14/14 通过**。
 - `scripts/sync-frontend.mjs`（新增）：本机大仓 `src/openim-electron-demo` 与仓库 `frontend/` 双向同步（status / to-repo / to-local，支持 --dry-run），只覆盖源码、不删产物和密钥。
 - `README.md`：新增「二、本机目录与仓库对照（协作必读）」，说明两边目录映射、为什么产物不入库、同事开发/回归/同步流程；后续章节重新编号。
+
+---
+
+## 六、桌面端登录无反应修复（2026-11-20）
+
+- **现象**：桌面端登录页填了账号密码，点「登录」没反应；登录页**不显示「服务器地址」输入框**。
+- **根因**：`electron/utils/index.ts` 导出 `isProd = app.isPackaged`，但该模块同时被主进程和 **preload** 引用。preload 上下文里 `app` 是 `undefined`，读 `app.isPackaged` 抛 `TypeError: Cannot read properties of undefined (reading 'isPackaged')`，导致整个 preload 加载失败 → `window.electronAPI` 未注入 → `isElectronRuntime()` 返回 false（不显示服务器地址框）、登录请求打到 `file://` 地址而失败。
+- **定位方法**：带 `--remote-debugging-port` 启动桌面端，用 CDP 读 Runtime 异常，捕获到 `Unable to load preload script` + `isPackaged` TypeError。
+- **修复**：`isProd` 改为不依赖 `app` 的惰性判断——主进程用 `app.isPackaged`，preload 用 `!process.defaultApp` 兜底：
+  ```ts
+  export const isProd = (() => {
+    try { if (app && typeof app.isPackaged === "boolean") return app.isPackaged; } catch (_) {}
+    return !process.defaultApp;
+  })();
+  ```
+- **验证**（CDP 自动化，win-unpacked）：修复后 `electronAPI=object`、服务器地址输入框出现、preload 报错 0；填入 `127.0.0.1` + `12345678003` + `Xinbo@2026` 点登录，成功跳转到 `#/chat` 并显示「刘洋 / 消息 / 通讯录 / 工作台」。
+- 注意：登录页**必须填服务器地址**（桌面端生产模式），填后端所在 IP/域名；不填则 `onFinish` 直接 return。

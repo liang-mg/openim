@@ -179,3 +179,5 @@ test: 补团队出勤回归
 - 一键脚本从仓库自带的 `base/` 读取服务编排；如需改用外部编排文件，可用 `OA_COMPOSE` 显式指定。
 - 生成的 `.env` 若改了 chat 配置里的 secret，必须同步改 `XINBO_OA_TOKEN_SECRET`，否则登录态校验失败、接口全部 401。
 - GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`，`deploy.sh build` 会透传给镜像构建。
+- **桌面端登录页不显示「服务器地址」输入框 / 点登录没反应**：多半是 preload 加载失败、`window.electronAPI` 未注入。典型原因是 preload 引用的公共模块里读了 `app.isPackaged`（preload 上下文没有 `app`）而抛错。排查：带 `--remote-debugging-port=9223` 启动，用浏览器打开 `http://127.0.0.1:9223/json` 拿页面 WebSocket 地址，连上看 Runtime 异常。修复见 `CHANGES.md` 第六节。
+- **桌面端登录必须填服务器地址**：生产模式登录页第一项就是服务器地址（后端 IP 或域名，如 `127.0.0.1`），程序自动派生各服务端口；留空点登录不会有任何反应。
