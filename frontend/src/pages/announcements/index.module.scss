@@ -1,0 +1,25 @@
+.article {
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #e9ebef;
+  border-radius: 8px;
+
+  h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  p {
+    margin: 20px 0 0;
+    color: #20242d;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.meta {
+  color: #667085;
+  font-size: 13px;
+}

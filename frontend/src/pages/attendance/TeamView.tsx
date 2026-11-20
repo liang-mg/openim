@@ -22,6 +22,7 @@ const TODAY_STATE_TEXT: Record<string, string> = {
   done: "已打卡",
   partial: "缺一次卡",
   absent: "未打卡",
+  leave: "已批准请假",
   in_progress: "上班中",
   rest: "休息",
   not_yet: "未到点",
@@ -30,7 +31,9 @@ const TODAY_STATE_TEXT: Record<string, string> = {
 interface Props {
   month: string;
   todayKey: string;
+  selectedDate?: string;
   scope: DataScope;
+  departmentId?: string;
   canViewAll: boolean;
   onScopeChange: (s: DataScope) => void;
   onRule?: (r: CheckinRule) => void;
@@ -44,7 +47,9 @@ interface Props {
 const TeamView = ({
   month,
   todayKey,
+  selectedDate,
   scope,
+  departmentId,
   canViewAll,
   onScopeChange,
   onRule,
@@ -58,6 +63,8 @@ const TeamView = ({
   const [drawerRecords, setDrawerRecords] = useState<CheckinRecord[]>([]);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [drawerRule, setDrawerRule] = useState<CheckinRule | undefined>();
+  const [drawerCalendar, setDrawerCalendar] = useState<Record<string, CheckinRule>>({});
+  const [drawerLeaveDays, setDrawerLeaveDays] = useState<Record<string, boolean>>({});
 
   // 回调放进 ref：父组件的内联箭头函数每次渲染都是新引用，若留在依赖里会让 load 每次都变，
   // useEffect 随之每次渲染重跑 → setLoading(true) → 再渲染，表现为"一直转圈、后端被打爆"。
@@ -75,7 +82,7 @@ const TeamView = ({
     const id = ++reqId.current;
     setLoading(true);
     try {
-      const res = await getTeamCheckin({ month, scope, onlyException });
+      const res = await getTeamCheckin({ month, scope, departmentId, onlyException, date: selectedDate });
       if (id !== reqId.current) return;
       setData(res);
       onRuleRef.current?.(res.rule);
@@ -86,7 +93,7 @@ const TeamView = ({
     } finally {
       if (id === reqId.current) setLoading(false);
     }
-  }, [month, scope, onlyException]);
+  }, [month, scope, departmentId, onlyException, selectedDate]);
 
   useEffect(() => {
     void load();
@@ -100,8 +107,12 @@ const TeamView = ({
         const res = await getMemberCheckin(row.user_id, month);
         setDrawerRecords(res.list);
         setDrawerRule(res.rule);
+        setDrawerCalendar(res.rules_by_date ?? {});
+        setDrawerLeaveDays(res.approved_leave_days ?? {});
       } catch (e) {
         setDrawerRecords([]);
+        setDrawerCalendar({});
+        setDrawerLeaveDays({});
         onErrorRef.current(e instanceof Error ? e.message : "成员月历加载失败");
       } finally {
         setDrawerLoading(false);
@@ -183,7 +194,7 @@ const TeamView = ({
           return (
             <span className={styles["tm-time-cell"]}>
               <span className={styles["tm-dim"]}>—</span>
-              {row.today.state === "in_progress" ? (
+              {row.today.state === "leave" ? null : row.today.state === "in_progress" ? (
                 <span className={styles["tm-progress"]}>上班中</span>
               ) : (
                 <span className={styles["tm-miss"]}>未打</span>
@@ -305,7 +316,7 @@ const TeamView = ({
 
       {leaveWarning && (
         <div className={styles["tm-warn"]}>
-          缺卡按「当天没有打卡记录」计算，已批准的请假不计缺卡；周末与法定节假日按周一至周五判，节假日日历尚未接入。
+          已批准的请假不计缺卡。工作日按公司或部门规则计算。
         </div>
       )}
 
@@ -366,7 +377,7 @@ const TeamView = ({
             hasData={drawerRecords.length > 0}
             compact
             stateOf={(date) =>
-              stateOfDay(drawerByDate.get(date), date, todayKey, new Date(), drawerRule)
+              stateOfDay(drawerByDate.get(date), date, todayKey, new Date(), drawerCalendar[date] ?? drawerRule, drawerLeaveDays[date])
             }
           />
           {drawerRecords.length === 0 && (

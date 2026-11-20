@@ -160,6 +160,28 @@
   color: #12233f;
 }
 
+.attachment-links {
+  display: grid;
+  gap: 4px;
+
+  button {
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    background: none;
+    color: #0b5fd8;
+    cursor: pointer;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
 .op-cell {
   display: flex;
   align-items: center;

@@ -2,15 +2,14 @@ package api
 
 import (
 	"context"
-	"encoding/csv"
 	"fmt"
-	"net/url"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/xinbo/xinbo-oa/internal/auth"
 	"github.com/xinbo/xinbo-oa/internal/model"
@@ -33,16 +32,12 @@ func (s *Server) loadMonth(ctx context.Context, ids []string, month string) (map
 	if !valid {
 		return out, fmt.Errorf("月份格式不正确")
 	}
-	cur, err := s.Store.Checkins().Find(ctx, bson.M{
+	list, err := s.loadVisibleCheckins(ctx, bson.M{
 		"company_id": s.Cfg.CompanyID,
 		"user_id":    bson.M{"$in": ids},
 		"date":       bson.M{"$gte": start, "$lt": end},
 	})
 	if err != nil {
-		return nil, err
-	}
-	var list []model.CheckinRecord
-	if err = cur.All(ctx, &list); err != nil {
 		return nil, err
 	}
 	for i := range list {
@@ -70,9 +65,10 @@ func (s *Server) loadMonth(ctx context.Context, ids []string, month string) (map
 // 关键一条：**今天还没到下班时间，只打了上班卡不算缺卡**，显示"进行中"。
 // 以前本人月历在下午三点就把人标成"缺一次卡"，是错的。
 func (s *Server) dayStatusOf(p *dayPair, date, today string, nowMin int, rule model.CheckinRule) model.DayStatus {
+	rule = dayCheckinRule(p, rule)
 	offMin := parseHM(rule.WorkOffTime)
 	onMin := parseHM(rule.WorkOnTime) + rule.LateGrace
-	weekend := isWeekendDate(date)
+	restDay := !isWorkday(date, rule.Workdays)
 
 	hasOn := p != nil && p.On != nil
 	hasOff := p != nil && p.Off != nil
@@ -99,22 +95,12 @@ func (s *Server) dayStatusOf(p *dayPair, date, today string, nowMin int, rule mo
 		st.State = "not_yet"
 	case date == today && nowMin < onMin:
 		st.State = "not_yet"
-	case weekend:
+	case restDay:
 		st.State = "rest"
 	default:
 		st.State = "absent"
 	}
 	return st
-}
-
-// isWeekendDate 只按星期判周末。法定节假日/补班要等考勤规则模块接入节假日日历，
-// 在那之前一律按"周一至周五上班"，页面上会明确标注这个口径。
-func isWeekendDate(date string) bool {
-	d, err := time.Parse("2006-01-02", date)
-	if err != nil {
-		return false
-	}
-	return d.Weekday() == time.Saturday || d.Weekday() == time.Sunday
 }
 
 // monthStatOf 月度统计。口径统一在这里算，团队表、报表、导出的数字才能一致。
@@ -127,20 +113,15 @@ func isWeekendDate(date string) bool {
 //  4. 迟到 / 早退按记录如实计数，含今天。
 //  5. 已批准的请假日：不算缺卡，也不进应出勤分母（人本来就不用上班）。
 //     leaveDays 传 nil 表示还没接请假数据，行为与以前一致。
-func (s *Server) monthStatOf(days map[string]*dayPair, leaveDays map[string]bool, month, today string, nowMin int, rule model.CheckinRule) model.MonthStat {
+func (s *Server) monthStatOf(days map[string]*dayPair, leaveDays map[string]bool, month, today string, nowMin int, ruleForDay func(string) model.CheckinRule) model.MonthStat {
 	stat := model.MonthStat{}
 	t, err := time.Parse("2006-01", month)
 	if err != nil {
 		return stat
 	}
 	last := t.AddDate(0, 1, -1).Day()
-	offMin := parseHM(rule.WorkOffTime)
-
 	for d := 1; d <= last; d++ {
 		date := fmt.Sprintf("%s-%02d", month, d)
-		if isWeekendDate(date) {
-			continue
-		}
 		if date > today {
 			continue
 		}
@@ -150,6 +131,11 @@ func (s *Server) monthStatOf(days map[string]*dayPair, leaveDays map[string]bool
 			continue
 		}
 		p := days[date]
+		rule := dayCheckinRule(p, ruleForDay(date))
+		if !isWorkday(date, rule.Workdays) {
+			continue
+		}
+		offMin := parseHM(rule.WorkOffTime)
 		hasOn := p != nil && p.On != nil
 		hasOff := p != nil && p.Off != nil
 		dayOver := date < today || (date == today && nowMin >= offMin)
@@ -182,10 +168,10 @@ func (s *Server) monthStatOf(days map[string]*dayPair, leaveDays map[string]bool
 }
 
 // memberRow 由档案 + 记录拼出一行团队考勤。
-func (s *Server) memberRow(e model.Employee, days map[string]*dayPair, leaveDays map[string]bool, month, today string, nowMin int, rule model.CheckinRule) model.TeamMemberRow {
-	ds := s.dayStatusOf(days[today], today, today, nowMin, rule)
+func (s *Server) memberRow(e model.Employee, days map[string]*dayPair, leaveDays map[string]bool, month, date, today string, nowMin int, ruleForDay func(string) model.CheckinRule) model.TeamMemberRow {
+	ds := s.dayStatusOf(days[date], date, today, nowMin, ruleForDay(date))
 	// 今天请了假：状态显示"请假"，不再标红为未到
-	if leaveDays[today] {
+	if leaveDays[date] {
 		ds.State = "leave"
 		ds.On, ds.Off = nil, nil
 	}
@@ -196,7 +182,7 @@ func (s *Server) memberRow(e model.Employee, days map[string]*dayPair, leaveDays
 		Position:   e.Position,
 		Role:       e.Role,
 		Today:      ds,
-		Month:      s.monthStatOf(days, leaveDays, month, today, nowMin, rule),
+		Month:      s.monthStatOf(days, leaveDays, month, today, nowMin, ruleForDay),
 	}
 	row.Exception = ds.State == "absent" || ds.State == "partial" ||
 		(ds.On != nil && ds.On.Status == "late") ||
@@ -223,6 +209,35 @@ func (s *Server) scopeEmployees(ctx context.Context, ids []string) []model.Emplo
 		return nil
 	}
 	return list
+}
+
+func (s *Server) attendanceEmployees(ctx context.Context, uid, scope, departmentID string) ([]model.Employee, []string, error) {
+	people := s.scopeEmployees(ctx, s.visibleUserIDs(ctx, uid, scope))
+	if scope == ScopeMine && len(people) == 0 {
+		people = []model.Employee{{UserID: uid, RealName: uid, Department: "未分配"}}
+	}
+	branch := map[string]bool{}
+	if departmentID != "" {
+		deptIDs, err := s.departmentIDsInBranch(ctx, departmentID)
+		if err == mongo.ErrNoDocuments {
+			return nil, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, id := range deptIDs {
+			branch[id] = true
+		}
+	}
+	selected := people[:0]
+	ids := make([]string, 0, len(people))
+	for _, person := range people {
+		if (departmentID == "" || branch[person.DepartmentID]) && (scope != ScopeTeam || person.UserID != uid) {
+			selected = append(selected, person)
+			ids = append(ids, person.UserID)
+		}
+	}
+	return selected, ids, nil
 }
 
 // warnings 把"这套数字还缺什么"如实告诉前端，别让前端自己写死提示。
@@ -256,19 +271,11 @@ func (s *Server) TeamCheckin(c *gin.Context) {
 		date = today
 	}
 
-	ids := s.visibleUserIDs(ctx, uid, scope)
-	// 团队视角不含自己：自己的记录在「我的」里看，混在一起会让"应到人数"多算一个。
-	if scope == ScopeTeam {
-		filtered := make([]string, 0, len(ids))
-		for _, id := range ids {
-			if id != uid {
-				filtered = append(filtered, id)
-			}
-		}
-		ids = filtered
+	emps, ids, err := s.attendanceEmployees(ctx, uid, scope, c.Query("department_id"))
+	if err != nil {
+		fail(c, "查询部门失败")
+		return
 	}
-
-	emps := s.scopeEmployees(ctx, ids)
 	byUser, err := s.loadMonth(ctx, ids, month)
 	if err != nil {
 		fail(c, "查询失败")
@@ -277,14 +284,22 @@ func (s *Server) TeamCheckin(c *gin.Context) {
 	// 请假已接入：把已批准的工作日请假日捞出来，请假日不算缺卡
 	leaveByUser := s.approvedLeaveDays(ctx, ids, month)
 
-	rule := s.todayRule()
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	rule := checkinRuleOf(timeline.forDay("", date))
 	nowMin := minuteOfDay(now)
 	onlyException := c.Query("only_exception") == "1"
 
 	rows := make([]model.TeamMemberRow, 0, len(emps))
 	summary := model.TeamCheckinSummary{}
 	for _, e := range emps {
-		row := s.memberRow(e, byUser[e.UserID], leaveByUser[e.UserID], month, date, nowMin, rule)
+		ruleForDay := func(day string) model.CheckinRule {
+			return checkinRuleOf(timeline.forDay(e.DepartmentID, day))
+		}
+		row := s.memberRow(e, byUser[e.UserID], leaveByUser[e.UserID], month, date, today, nowMin, ruleForDay)
 		summary.Members++
 		if row.Today.On != nil {
 			summary.Present++
@@ -377,7 +392,7 @@ func (s *Server) TeamMemberCheckin(c *gin.Context) {
 		month = today[:7]
 	}
 	start, end, _ := monthRange(month)
-	cur, err := s.Store.Checkins().Find(ctx, bson.M{
+	list, err := s.loadVisibleCheckins(ctx, bson.M{
 		"company_id": s.Cfg.CompanyID,
 		"user_id":    target,
 		"date":       bson.M{"$gte": start, "$lt": end},
@@ -386,21 +401,28 @@ func (s *Server) TeamMemberCheckin(c *gin.Context) {
 		fail(c, "查询失败")
 		return
 	}
-	var list []model.CheckinRecord
-	if err = cur.All(ctx, &list); err != nil {
-		fail(c, "查询失败")
-		return
-	}
 	if list == nil {
 		list = []model.CheckinRecord{}
 	}
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	leaveDays, err := s.loadApprovedLeaveDays(ctx, []string{target}, month)
+	if err != nil {
+		fail(c, "查询请假记录失败")
+		return
+	}
 	ok(c, gin.H{
-		"user":    emp,
-		"month":   month,
-		"total":   len(list),
-		"list":    list,
-		"rule":    s.todayRule(),
-		"warnings": checkinWarnings(),
+		"user":                emp,
+		"month":               month,
+		"total":               len(list),
+		"list":                list,
+		"rule":                checkinRuleOf(timeline.forDay(emp.DepartmentID, today)),
+		"rules_by_date":       timeline.checkinCalendar(emp.DepartmentID, month),
+		"approved_leave_days": leaveDays[target],
+		"warnings":            checkinWarnings(),
 	})
 }
 
@@ -437,49 +459,66 @@ func (s *Server) AttendanceReport(c *gin.Context) {
 		month = today[:7]
 	}
 
-	ids := s.visibleUserIDs(ctx, uid, scope)
-	if scope == ScopeTeam {
-		filtered := make([]string, 0, len(ids))
-		for _, id := range ids {
-			if id != uid {
-				filtered = append(filtered, id)
-			}
-		}
-		ids = filtered
-	}
-	// 「我的」也走同一条链路，保证本人看到的数字和团队表里的一致
-	if scope == ScopeMine {
-		ids = []string{uid}
-	}
-
-	emps := s.scopeEmployees(ctx, ids)
-	if scope == ScopeMine && len(emps) == 0 {
-		// 没有员工档案的账号也能看自己的报表
-		emps = []model.Employee{{UserID: uid, RealName: uid, Department: "未分配"}}
-	}
-	byUser, err := s.loadMonth(ctx, ids, month)
+	result, err := s.buildAttendanceReport(ctx, uid, scope, month, c.Query("department_id"), now)
 	if err != nil {
 		fail(c, "查询失败")
 		return
 	}
-	leaveByUser := s.approvedLeaveDays(ctx, ids, month)
+	switch c.Query("format") {
+	case "csv":
+		s.writeReportCSV(c, result)
+	case "xlsx":
+		s.writeReportXLSX(c, result)
+	default:
+		ok(c, result)
+	}
+}
 
-	rule := s.todayRule()
+func (s *Server) buildAttendanceReport(ctx context.Context, uid, scope, month, departmentID string, now time.Time) (model.AttendanceReport, error) {
+	today := todayStr(now)
+	emps, ids, err := s.attendanceEmployees(ctx, uid, scope, departmentID)
+	if err != nil {
+		return model.AttendanceReport{}, err
+	}
+	byUser, err := s.loadMonth(ctx, ids, month)
+	if err != nil {
+		return model.AttendanceReport{}, err
+	}
+	leaveByUser := s.approvedLeaveDays(ctx, ids, month)
+	exceptions, err := s.reportExceptions(ctx, ids, month, leaveByUser)
+	if err != nil {
+		return model.AttendanceReport{}, err
+	}
+
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		return model.AttendanceReport{}, err
+	}
+	rule := checkinRuleOf(timeline.forDay("", today))
 	nowMin := minuteOfDay(now)
 	rows := make([]model.ReportRow, 0, len(emps))
 	total := model.ReportRow{Name: "合计"}
 
 	for _, e := range emps {
 		days := byUser[e.UserID]
-		stat := s.monthStatOf(days, leaveByUser[e.UserID], month, today, nowMin, rule)
+		stat := s.monthStatOf(days, leaveByUser[e.UserID], month, today, nowMin, func(day string) model.CheckinRule {
+			return checkinRuleOf(timeline.forDay(e.DepartmentID, day))
+		})
 
 		var onRecs, offRecs []*model.CheckinRecord
+		makeupCount := 0
 		for _, p := range days {
 			if p.On != nil {
 				onRecs = append(onRecs, p.On)
+				if p.On.Source == "makeup" {
+					makeupCount++
+				}
 			}
 			if p.Off != nil {
 				offRecs = append(offRecs, p.Off)
+				if p.Off.Source == "makeup" {
+					makeupCount++
+				}
 			}
 		}
 
@@ -495,6 +534,8 @@ func (s *Server) AttendanceReport(c *gin.Context) {
 			Absent:     stat.Absent,
 			Partial:    stat.Partial,
 			Leave:      stat.Leave,
+			Makeup:     makeupCount,
+			Exceptions: exceptions[e.UserID],
 			Rate:       stat.Rate,
 			AvgOn:      avgClock(onRecs),
 			AvgOff:     avgClock(offRecs),
@@ -508,8 +549,8 @@ func (s *Server) AttendanceReport(c *gin.Context) {
 		total.Absent += row.Absent
 		total.Partial += row.Partial
 		total.Leave += row.Leave
-		total.AvgOn = "" // 合计行的平均时间没有意义，留空避免误读
-		total.AvgOff = ""
+		total.Makeup += row.Makeup
+		total.Exceptions += row.Exceptions
 	}
 	if total.Workdays > 0 {
 		total.Rate = int(float64(total.Attend)/float64(total.Workdays)*100 + 0.5)
@@ -526,7 +567,7 @@ func (s *Server) AttendanceReport(c *gin.Context) {
 		return rows[i].Name < rows[j].Name
 	})
 
-	result := model.AttendanceReport{
+	return model.AttendanceReport{
 		Scope:       scope,
 		Month:       month,
 		Rule:        rule,
@@ -534,43 +575,43 @@ func (s *Server) AttendanceReport(c *gin.Context) {
 		Warnings:    checkinWarnings(),
 		Total:       total,
 		Rows:        rows,
-	}
-
-	if c.Query("format") == "csv" {
-		s.writeReportCSV(c, result)
-		return
-	}
-	ok(c, result)
+	}, nil
 }
 
-// writeReportCSV 导出 CSV。带 UTF-8 BOM，否则 Excel 打开中文全是乱码。
-func (s *Server) writeReportCSV(c *gin.Context, r model.AttendanceReport) {
-	filename := fmt.Sprintf("出勤报表_%s.csv", r.Month)
-	c.Header("Content-Type", "text/csv; charset=utf-8")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"report_%s.csv\"; filename*=UTF-8''%s",
-		r.Month, url.PathEscape(filename)))
-	c.Writer.WriteString("\xEF\xBB\xBF") // BOM
+func (s *Server) reportExceptions(ctx context.Context, ids []string, month string, approvedLeave map[string]map[string]bool) (map[string]int, error) {
+	counts := map[string]int{}
+	rows, err := s.effectiveReportExceptions(ctx, ids, month, approvedLeave)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.UserID]++
+	}
+	return counts, nil
+}
 
-	w := csv.NewWriter(c.Writer)
-	_ = w.Write([]string{
-		"姓名", "部门", "岗位", "应出勤(天)", "实际出勤(天)", "请假(天)", "出勤率",
-		"迟到(次)", "早退(次)", "缺卡(天)", "单卡(天)", "平均上班", "平均下班",
-	})
-	line := func(x model.ReportRow) []string {
-		return []string{
-			x.Name, x.Department, x.Position,
-			strconv.Itoa(x.Workdays), strconv.Itoa(x.Attend), strconv.Itoa(x.Leave), fmt.Sprintf("%d%%", x.Rate),
-			strconv.Itoa(x.Late), strconv.Itoa(x.Early), strconv.Itoa(x.Absent), strconv.Itoa(x.Partial),
-			x.AvgOn, x.AvgOff,
+func (s *Server) effectiveReportExceptions(ctx context.Context, ids []string, month string, approvedLeave map[string]map[string]bool) ([]model.CheckinException, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	start, end, _ := monthRange(month)
+	cur, err := s.Store.Exceptions().Find(ctx, bson.M{
+		"company_id": s.Cfg.CompanyID, "user_id": bson.M{"$in": ids},
+		"date":   bson.M{"$gte": start, "$lt": end},
+		"status": bson.M{"$in": bson.A{"open", "appealed", "resolved"}}, "handler_id": bson.M{"$ne": "system"},
+	}, options.Find().SetProjection(bson.M{"user_id": 1, "date": 1}))
+	if err != nil {
+		return nil, err
+	}
+	var rows []model.CheckinException
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	filtered := rows[:0]
+	for _, row := range rows {
+		if !approvedLeave[row.UserID][row.Date] {
+			filtered = append(filtered, row)
 		}
 	}
-	for _, row := range r.Rows {
-		_ = w.Write(line(row))
-	}
-	_ = w.Write(line(r.Total))
-	w.Flush()
-
-	// 口径说明放在文末：拿到文件的人不看页面也知道数字怎么来的
-	_, _ = fmt.Fprintf(c.Writer, "\n统计口径,%s 至 %s 月末；工作时间为 %s-%s；工作日按周一至周五；已批准请假日不算缺卡、不计入应出勤；补卡通过的打卡计入出勤\n",
-		r.Month+"-01", r.Month, r.Rule.WorkOnTime, r.Rule.WorkOffTime)
+	return filtered, nil
 }

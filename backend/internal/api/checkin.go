@@ -24,11 +24,12 @@ func todayStr(t time.Time) string {
 	return fmt.Sprintf("%04d-%02d-%02d", t.Year(), int(t.Month()), t.Day())
 }
 
-// deviceText 只留有用的部分：UA 截断到 180 字符，避免把整串指纹塞进库里。
+// deviceText 将浏览器可提供的平台和 UA 保存在原有设备字段中。
 func deviceText(model, ua string) string {
+	model = strings.TrimSpace(model)
 	ua = strings.TrimSpace(ua)
-	if len(ua) > 180 {
-		ua = ua[:180]
+	if len(ua) > 512 {
+		ua = ua[:512]
 	}
 	if model == "" {
 		return ua
@@ -37,20 +38,6 @@ func deviceText(model, ua string) string {
 		return model
 	}
 	return model + " | " + ua
-}
-
-// todayRule 当前生效的作息规则。时间来自「考勤规则配置」（库里一套 + 环境变量兜底），
-// 打卡判定、团队表、报表、异常扫描共用这一份，避免"页面写 9:00、后端按 9:30 算"。
-func (s *Server) todayRule() model.CheckinRule {
-	r := s.currentRule()
-	return model.CheckinRule{
-		WorkOnTime:   r.WorkOnTime,
-		WorkOffTime:  r.WorkOffTime,
-		LateGrace:    r.LateGrace,
-		EarliestOn:   r.EarliestOn,
-		NeedPhoto:    r.NeedPhoto,
-		NeedLocation: r.NeedLocation,
-	}
 }
 
 // parseHM 把 "09:05" 解析成当天第几分钟（0~1439）。解析失败回落 0，
@@ -150,7 +137,12 @@ func (s *Server) LocateCheckin(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	office := s.officeInfo()
+	rule, err := s.effectiveAttendanceRule(ctx, auth.UserID(c))
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	office := *rule.Office
 	res := model.LocateResult{
 		Lat:      lat,
 		Lng:      lng,
@@ -161,8 +153,8 @@ func (s *Server) LocateCheckin(c *gin.Context) {
 		Accuracy: "precise",
 	}
 	if office.Configured {
-		res.Distance = haversineMeters(lat, lng, s.Cfg.OfficeLat, s.Cfg.OfficeLng)
-		res.InFence = res.Distance <= s.Cfg.OfficeRadius
+		res.Distance = haversineMeters(lat, lng, office.Lat, office.Lng)
+		res.InFence = res.Distance <= office.Radius
 	}
 	ok(c, res)
 }
@@ -180,7 +172,7 @@ func (s *Server) TodayCheckin(c *gin.Context) {
 	now := time.Now()
 	date := todayStr(now)
 
-	cur, err := s.Store.Checkins().Find(ctx, bson.M{
+	list, err := s.loadVisibleCheckins(ctx, bson.M{
 		"company_id": s.Cfg.CompanyID,
 		"user_id":    uid,
 		"date":       date,
@@ -189,13 +181,12 @@ func (s *Server) TodayCheckin(c *gin.Context) {
 		fail(c, "查询失败")
 		return
 	}
-	var list []model.CheckinRecord
-	if err = cur.All(ctx, &list); err != nil {
-		fail(c, "查询失败")
+	rule, err := s.attendanceRuleForDate(ctx, uid, date)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
 		return
 	}
-
-	resp := model.TodayCheckin{Date: date, CanCheckin: true, Rule: s.todayRule(), Office: s.officeInfo()}
+	resp := model.TodayCheckin{Date: date, CanCheckin: true, Rule: checkinRuleOf(rule), Office: *rule.Office}
 	for i := range list {
 		r := list[i]
 		if r.Type == "on" {
@@ -208,11 +199,11 @@ func (s *Server) TodayCheckin(c *gin.Context) {
 }
 
 type submitCheckinReq struct {
-	Type         string  `json:"type"`
-	Photo        string  `json:"photo"`
-	Lat          float64 `json:"lat"`
-	Lng          float64 `json:"lng"`
-	LocationName string  `json:"location_name"`
+	Type         string   `json:"type"`
+	Photo        string   `json:"photo"`
+	Lat          *float64 `json:"lat"`
+	Lng          *float64 `json:"lng"`
+	LocationName string   `json:"location_name"`
 	// 来源由前端带回，但后端必须用 LocationToken 校验，不能只信这个字符串。
 	LocationSource string `json:"location_source"`
 	LocationToken  string `json:"location_token"`
@@ -220,6 +211,27 @@ type submitCheckinReq struct {
 		Model string `json:"model"`
 		UA    string `json:"ua"`
 	} `json:"device_info"`
+}
+
+const maxCheckinPhotoBytes = 300 * 1024
+
+func parseCheckinPhoto(photo string) (io.Reader, int64, string, string, string) {
+	if strings.TrimSpace(photo) == "" {
+		return nil, 0, "", "", ""
+	}
+	reader, size, mime, ext, valid := dataURLToReader(photo)
+	if !valid {
+		return nil, 0, "", "", "打卡照片格式无效，请重新拍照"
+	}
+	if size > maxCheckinPhotoBytes {
+		return nil, 0, "", "", "打卡照片不能超过 300 KiB，请重新拍照"
+	}
+	switch mime {
+	case "image/jpeg", "image/png", "image/webp":
+		return reader, size, mime, ext, ""
+	default:
+		return nil, 0, "", "", "打卡照片格式无效，请重新拍照"
+	}
 }
 
 // SubmitCheckin 提交打卡：时间以服务端为准，判定正常/迟到/早退
@@ -230,6 +242,11 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 	var req submitCheckinReq
 	if err := c.ShouldBindJSON(&req); err != nil || (req.Type != "on" && req.Type != "off") {
 		fail(c, "参数错误")
+		return
+	}
+	photo, photoSize, photoMIME, photoExt, photoError := parseCheckinPhoto(req.Photo)
+	if photoError != "" {
+		fail(c, photoError)
 		return
 	}
 
@@ -256,29 +273,37 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 	// 迟到/早退按配置的作息判定（默认 09:05 / 18:00），
 	// 用"当天第几分钟"比较，避免 hour/minute 分开写漏掉边界。
 	status, statusText := "normal", "正常"
-	rule := s.todayRule()
+	rule, err := s.attendanceRuleForDate(ctx, uid, date)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
 	nowMin := minuteOfDay(now)
-	if req.Type == "on" && nowMin > parseHM(rule.WorkOnTime)+rule.LateGrace {
-		status, statusText = "late", "迟到"
-	} else if req.Type == "off" && nowMin < parseHM(rule.WorkOffTime) {
-		status, statusText = "early", "早退"
+	if isWorkday(date, rule.Workdays) {
+		if req.Type == "on" && nowMin < parseHM(rule.EarliestOn) {
+			fail(c, "未到最早上班打卡时间")
+			return
+		}
+		if req.Type == "on" && nowMin > parseHM(rule.WorkOnTime)+rule.LateGrace {
+			status, statusText = "late", "迟到"
+		} else if req.Type == "off" && nowMin < parseHM(rule.WorkOffTime) {
+			status, statusText = "early", "早退"
+		}
 	}
 
 	// 规则要求拍照就必须真带照片：前端已经没有「模拟照片」这个口子，
 	// 后端也不再接受空照片，否则等于把「防代打」关掉。
-	if s.todayRule().NeedPhoto && strings.TrimSpace(req.Photo) == "" {
+	if rule.NeedPhoto && photo == nil {
 		fail(c, "请先拍摄打卡照片")
 		return
 	}
 
-	// 定位：服务端重算距离，前端传什么都得先过这里。
-	// 没坐标就是没定位，不允许「静默跳过定位」打出卡来；配了打卡点才判范围。
-	office := s.officeInfo()
-	if !validCoord(req.Lat, req.Lng) {
+	office := *rule.Office
+	hasLocation := req.Lat != nil && req.Lng != nil
+	if rule.NeedLocation && !hasLocation {
 		fail(c, "未获取到定位，请允许浏览器使用位置后重试")
 		return
 	}
-
 	// 定位来源不能只信前端字符串：只有后端签发过 token 的才算 IP 定位。
 	// IP 定位精度是城市级，绝不参与 500 米围栏判定，否则会误判员工。
 	locationSource, locationAccuracy := "gps", "precise"
@@ -295,17 +320,30 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 		}
 	}
 
+	if (req.Lat != nil || req.Lng != nil) && (!hasLocation || !validCoord(*req.Lat, *req.Lng)) {
+		fail(c, "定位参数无效")
+		return
+	}
+	if locationSource == "ip" && !hasLocation {
+		fail(c, "IP 定位缺少坐标，请重新定位")
+		return
+	}
 	distance, inFence := 0, false
-	if office.Configured && locationAccuracy == "precise" {
-		distance = haversineMeters(req.Lat, req.Lng, s.Cfg.OfficeLat, s.Cfg.OfficeLng)
-		inFence = distance <= s.Cfg.OfficeRadius
-		if !inFence && s.Cfg.StrictFence {
-			fail(c, fmt.Sprintf("当前位置距打卡点 %s，超出 %s 打卡范围", fmtDistance(distance), fmtDistance(s.Cfg.OfficeRadius)))
+	// IP 定位只有城市级精度，不能拿城市坐标判 500 米围栏。
+	fenceSet := office.Configured && hasLocation && locationAccuracy == "precise"
+	if fenceSet {
+		distance = haversineMeters(*req.Lat, *req.Lng, office.Lat, office.Lng)
+		inFence = distance <= office.Radius
+		if !inFence && office.Strict {
+			fail(c, fmt.Sprintf("当前位置距打卡点 %s，超出 %s 打卡范围", fmtDistance(distance), fmtDistance(office.Radius)))
 			return
 		}
 	}
-	address := s.reverseGeocode(ctx, req.Lat, req.Lng)
 
+	userAgent := c.Request.UserAgent()
+	if userAgent == "" {
+		userAgent = req.DeviceInfo.UA
+	}
 	rec := model.CheckinRecord{
 		ID:               fmt.Sprintf("ck_%s_%s_%s", uid, date, req.Type),
 		CompanyID:        s.Cfg.CompanyID,
@@ -314,13 +352,10 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 		Type:             req.Type,
 		CheckinTime:      now.UnixMilli(),
 		LocationName:     office.Name,
-		Address:          address,
-		Lat:              req.Lat,
-		Lng:              req.Lng,
 		Distance:         distance,
 		InFence:          inFence,
-		FenceSet:         office.Configured,
-		Device:           deviceText(req.DeviceInfo.Model, req.DeviceInfo.UA),
+		FenceSet:         fenceSet,
+		Device:           deviceText(req.DeviceInfo.Model, userAgent),
 		Status:           status,
 		StatusText:       statusText,
 		Source:           "normal",
@@ -328,29 +363,28 @@ func (s *Server) SubmitCheckin(c *gin.Context) {
 		LocationAccuracy: locationAccuracy,
 		ClientIP:         clientIP,
 		CreatedAt:        now.UnixMilli(),
+		RuleSnapshot:     &rule,
+	}
+	if hasLocation {
+		rec.Lat, rec.Lng = *req.Lat, *req.Lng
+		rec.Address = s.reverseGeocode(ctx, rec.Lat, rec.Lng)
 	}
 
 	// 照片必须存下来，"拍照打卡"才有防代打的意义。
 	// 前端传来的是已画好水印的 base64 图片，这里落 MinIO 后只存 file_id。
-	if req.Photo != "" && s.Files != nil {
-		if r, size, mime, ext, isData := dataURLToReader(req.Photo); isData {
-			if size > 4*1024*1024 {
-				fail(c, "打卡照片过大，请重新拍照")
-				return
-			}
-			name := fmt.Sprintf("打卡照片_%s_%s%s", date, req.Type, ext)
-			if meta, e := s.saveFile(ctx, uid, name, "checkin", r, size, mime); e == nil {
-				rec.PhotoURL = "/oa/api/v1/files/" + meta.ID
-				rec.PhotoFileID = meta.ID
-			} else {
-				// 照片存不上就拒绝打卡：允许无照片打卡等于把"防代打"关掉
-				fail(c, "打卡照片保存失败，请重试")
-				return
-			}
-		} else {
-			// 已经是上传后的地址，直接沿用
-			rec.PhotoURL = req.Photo
+	if photo != nil {
+		if s.Files == nil {
+			fail(c, "打卡照片服务未就绪，请联系管理员")
+			return
 		}
+		name := fmt.Sprintf("打卡照片_%s_%s%s", date, req.Type, photoExt)
+		meta, err := s.saveFile(ctx, uid, name, "checkin", photo, photoSize, photoMIME)
+		if err != nil {
+			fail(c, "打卡照片保存失败，请重试")
+			return
+		}
+		rec.PhotoURL = "/oa/api/v1/files/" + meta.ID
+		rec.PhotoFileID = meta.ID
 	}
 	if _, err = s.Store.Checkins().InsertOne(ctx, rec); err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -391,18 +425,28 @@ func (s *Server) CheckinList(c *gin.Context) {
 		"user_id":    uid,
 		"date":       bson.M{"$gte": start, "$lt": end},
 	}
-	cur, err := s.Store.Checkins().Find(ctx, filter)
+	list, err := s.loadVisibleCheckins(ctx, filter)
 	if err != nil {
-		fail(c, "查询失败")
-		return
-	}
-	var list []model.CheckinRecord
-	if err = cur.All(ctx, &list); err != nil {
 		fail(c, "查询失败")
 		return
 	}
 	if list == nil {
 		list = []model.CheckinRecord{}
 	}
-	ok(c, gin.H{"total": len(list), "list": list, "month": month, "rule": s.todayRule()})
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	deptID := s.employeeDepartmentID(ctx, uid)
+	leaveDays, err := s.loadApprovedLeaveDays(ctx, []string{uid}, month)
+	if err != nil {
+		fail(c, "查询请假记录失败")
+		return
+	}
+	ok(c, gin.H{"total": len(list), "list": list, "month": month,
+		"rule":                checkinRuleOf(timeline.forDay(deptID, todayStr(time.Now()))),
+		"rules_by_date":       timeline.checkinCalendar(deptID, month),
+		"approved_leave_days": leaveDays[uid],
+	})
 }

@@ -1,0 +1,19 @@
+services:
+  oa-tls:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    environment:
+      OA_TLS_DOMAIN: ${OA_TLS_DOMAIN:?指定测试域名}
+      OA_TLS_REDIRECT_ORIGIN: ${OA_TLS_REDIRECT_ORIGIN:?指定 HTTPS 地址}
+      NGINX_ENVSUBST_FILTER: ^OA_TLS_
+    volumes:
+      - ${OA_TLS_CERT_DIR:?指定证书目录}:/etc/nginx/tls:ro
+      - ${OA_TLS_TEMPLATE:-../deploy/oa-tls.conf.template}:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "${OA_TLS_BIND:-127.0.0.1}:${OA_TLS_HTTP_PORT:-8080}:80"
+      - "${OA_TLS_BIND:-127.0.0.1}:${OA_TLS_HTTPS_PORT:-8443}:443"
+    depends_on:
+      oa-web:
+        condition: service_started
+    networks:
+      - openim

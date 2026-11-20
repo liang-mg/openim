@@ -38,7 +38,7 @@ func (s *Store) Makeups() *mongo.Collection   { return s.DB.Collection("oa_makeu
 func (s *Store) Exceptions() *mongo.Collection {
 	return s.DB.Collection("oa_checkin_exception")
 }
-func (s *Store) Rules() *mongo.Collection        { return s.DB.Collection("oa_attendance_rule") }
+func (s *Store) Rules() *mongo.Collection         { return s.DB.Collection("oa_attendance_rule") }
 func (s *Store) Notifications() *mongo.Collection { return s.DB.Collection("oa_notification") }
 
 // 以下两个是 IM 的核心集合，只读引用（不写入）。
@@ -48,6 +48,21 @@ func (s *Store) IMAttributes() *mongo.Collection { return s.DB.Collection("attri
 
 // EnsureIndexes 建索引。company_id 一律作为联合索引首列（多租户铁律）。
 func (s *Store) EnsureIndexes(ctx context.Context) error {
+	if err := s.ensureAnnouncementIndexes(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureAuditIndexes(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureContractIndexes(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureDepartmentIndexes(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureRuleRevisionIndexes(ctx); err != nil {
+		return err
+	}
 	_, err := s.Checkins().Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "company_id", Value: 1}, {Key: "user_id", Value: 1}, {Key: "date", Value: 1}, {Key: "type", Value: 1}},
 		Options: options.Index().SetUnique(true),
@@ -104,6 +119,16 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+	// 补卡记录回查，以及后台恢复已领取但未完成的审批。
+	if _, err = s.Makeups().Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "company_id", Value: 1}, {Key: "makeup_id", Value: 1}}},
+		{
+			Keys: bson.D{{Key: "company_id", Value: 1}, {Key: "status", Value: 1}, {Key: "approval_claim.claimed_at", Value: 1}},
+			Options: options.Index().SetPartialFilterExpression(bson.M{"approval_claim": bson.M{"$exists": true}}),
+		},
+	}); err != nil {
+		return err
+	}
 	// 考勤异常：同一人同一天同一类型只有一条，扫描重复跑靠它做幂等
 	if _, err = s.Exceptions().Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "company_id", Value: 1}, {Key: "user_id", Value: 1}, {Key: "date", Value: 1}, {Key: "kind", Value: 1}},
@@ -133,9 +158,13 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	return err
 }
 
-// SeedEmployees 预置演示用的组织关系（真实 userID 来自当前 IM 实例）。
-// 生产环境由管理后台（/oa-admin）维护，这里只保证首次部署能跑通。
+// SeedEmployees 只向员工集合中没有该公司记录的测试公司写入演示账号。
 func (s *Store) SeedEmployees(ctx context.Context, companyID string) error {
+	employees := s.Employees()
+	count, err := employees.CountDocuments(ctx, bson.M{"company_id": companyID}, options.Count().SetLimit(1))
+	if err != nil || count != 0 {
+		return err
+	}
 	seeds := []any{
 		bson.M{"company_id": companyID, "user_id": "2158780278", "real_name": "李然", "department": "技术部", "position": "前端工程师", "manager_id": "9283941092", "role": "employee", "is_admin": false},
 		bson.M{"company_id": companyID, "user_id": "7474479331", "real_name": "张明", "department": "技术部", "position": "后端工程师", "manager_id": "9283941092", "role": "employee", "is_admin": false},
@@ -144,33 +173,14 @@ func (s *Store) SeedEmployees(ctx context.Context, companyID string) error {
 	}
 	for _, doc := range seeds {
 		m := doc.(bson.M)
+		m["oa_test_marker"] = "demo-employees-v1"
+		m["disabled"] = false
 		filter := bson.M{"company_id": companyID, "user_id": m["user_id"]}
 		update := bson.M{"$setOnInsert": m}
-		if _, err := s.Employees().UpdateOne(ctx, filter, update, options.Update().SetUpsert(true)); err != nil {
+		if _, err := employees.UpdateOne(ctx, filter, update, options.Update().SetUpsert(true)); err != nil {
 			return err
 		}
 	}
-	// 老库升级：已有档案没有 is_admin 字段时，把当前领导补成管理员。
-	// 必须先把 leader 补成 true，再把剩下的缺失项补 false，顺序反了会全变 false。
-	if _, err := s.Employees().UpdateMany(ctx,
-		bson.M{"company_id": companyID, "role": "leader", "is_admin": bson.M{"$exists": false}},
-		bson.M{"$set": bson.M{"is_admin": true}},
-	); err != nil {
-		return err
-	}
-	if _, err := s.Employees().UpdateMany(ctx,
-		bson.M{"company_id": companyID, "is_admin": bson.M{"$exists": false}},
-		bson.M{"$set": bson.M{"is_admin": false}},
-	); err != nil {
-		return err
-	}
-	// 已有档案没有 disabled 字段时补 false，保证查询条件行为一致
-	if _, err := s.Employees().UpdateMany(ctx,
-		bson.M{"company_id": companyID, "disabled": bson.M{"$exists": false}},
-		bson.M{"$set": bson.M{"disabled": false}},
-	); err != nil {
-		return err
-	}
-	log.Printf("[seed] employees ensured: %d", len(seeds))
+	log.Printf("[seed] demo employees ensured: %d", len(seeds))
 	return nil
 }

@@ -12,6 +12,8 @@ type Config struct {
 	MongoDB   string
 	Secret    string
 	CompanyID string
+	// SeedEmployees requires both an explicitly selected test environment and opt-in.
+	SeedEmployees bool
 
 	// 文件存储：直接复用 IM 已在跑的 MinIO，不另起一套存储。
 	// 附件、打卡照片都进 oa 桶，key 按 company/年月 分目录，方便按租户备份清理。
@@ -40,7 +42,7 @@ type Config struct {
 
 	// 作息规则：上班时间之后打上班卡算迟到，下班时间之前打下班卡算早退。
 	// 默认 09:05 / 18:00，与公司实际作息一致；换班次只改环境变量，不用改代码。
-	WorkOnTime string
+	WorkOnTime  string
 	WorkOffTime string
 	// 迟到宽限分钟数：容忍电梯排队、系统时间误差，0 表示超过即算迟到。
 	LateGraceMin int
@@ -68,8 +70,9 @@ func Load() *Config {
 		MongoDB:  env("OA_MONGO_DB", "openim_v3"),
 		// chatToken 由 chat 的 RPC 配置 chat-rpc-admin.yml 里的 secret 签发，
 		// 不是 share.yml 的 openIM.secret。OA 必须与它一致才能校验通过。
-		Secret:    env("OA_TOKEN_SECRET", env("OPENIM_SECRET", "<CHANGE_ME>")),
-		CompanyID: env("OA_COMPANY_ID", "xinbo"),
+		Secret:        env("OA_TOKEN_SECRET", env("OPENIM_SECRET", "<CHANGE_ME>")),
+		CompanyID:     env("OA_COMPANY_ID", "xinbo"),
+		SeedEmployees: os.Getenv("OA_ENVIRONMENT") == "test" && os.Getenv("OA_SEED_EMPLOYEES") == "true",
 
 		MinioEndpoint:  env("OA_MINIO_ENDPOINT", "minio:9000"),
 		MinioAccessKey: env("OA_MINIO_ACCESS_KEY", "root"),

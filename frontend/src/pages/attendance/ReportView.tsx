@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { App as AntdApp } from "antd";
 
 import {
-  downloadAttendanceCsv,
+  downloadAttendanceReport,
   getAttendanceReport,
   type AttendanceReport,
   type CheckinRule,
@@ -19,6 +19,7 @@ import styles from "./index.module.scss";
 interface Props {
   month: string;
   scope: DataScope;
+  departmentId?: string;
   canViewAll: boolean;
   onScopeChange: (s: DataScope) => void;
   onRule?: (r: CheckinRule) => void;
@@ -29,7 +30,7 @@ interface Props {
  * 出勤报表：一人一行，底下有合计行，可以导出 CSV 给 HR 做核算。
  * 数字全部来自服务端同一次聚合，和「团队出勤」里的出勤/迟到/缺卡严格一致。
  */
-const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }: Props) => {
+const ReportView = ({ month, scope, departmentId, canViewAll, onScopeChange, onRule, onError }: Props) => {
   const { message } = AntdApp.useApp();
   const [data, setData] = useState<AttendanceReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,7 +50,7 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
     const id = ++reqId.current;
     setLoading(true);
     try {
-      const res = await getAttendanceReport({ month, scope });
+      const res = await getAttendanceReport({ month, scope, departmentId });
       if (id !== reqId.current) return;
       setData(res);
       onRuleRef.current?.(res.rule);
@@ -60,17 +61,17 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
     } finally {
       if (id === reqId.current) setLoading(false);
     }
-  }, [month, scope]);
+  }, [month, scope, departmentId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const exportCsv = async () => {
+  const exportReport = async (format: "csv" | "xlsx") => {
     setExporting(true);
     try {
-      await downloadAttendanceCsv(month, scope);
-      message.success("报表已导出，可直接用 Excel 打开");
+      await downloadAttendanceReport(month, format, scope, departmentId);
+      message.success("报表已导出");
     } catch (e) {
       message.error(e instanceof Error ? e.message : "导出失败");
     } finally {
@@ -94,6 +95,9 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
       align: "center",
       render: (v: number) => <b>{v}</b>,
     },
+    { title: "请假（天）", dataIndex: "leave", width: 90, align: "center" },
+    { title: "补卡（次）", dataIndex: "makeup", width: 90, align: "center" },
+    { title: "有效异常", dataIndex: "exceptions", width: 90, align: "center" },
     {
       title: "出勤率",
       dataIndex: "rate",
@@ -159,16 +163,19 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
             type="primary"
             icon={<DownloadOutlined />}
             loading={exporting}
-            onClick={() => void exportCsv()}
+            onClick={() => void exportReport("xlsx")}
           >
-            导出报表
+            导出 Excel
+          </Button>
+          <Button size="small" disabled={exporting} onClick={() => void exportReport("csv")}>
+            导出 CSV
           </Button>
         </div>
       </div>
 
       {leaveWarning && (
         <div className={styles["tm-warn"]}>
-          报表已计入已批准请假（不算缺卡、不计入应出勤）；工作日按周一至周五判，节假日日历尚未接入。
+          已批准请假不计缺卡，也不计入应出勤。工作日按公司或部门规则计算。
         </div>
       )}
 
@@ -180,7 +187,7 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
             columns={columns}
             dataSource={data?.rows || []}
             pagination={false}
-            scroll={{ x: 1180 }}
+            scroll={{ x: 1450 }}
             locale={{ emptyText: "该月没有可统计的成员" }}
             summary={() =>
               total ? (
@@ -196,26 +203,29 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
                       <b>{total.attend}</b>
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={5} align="center">
-                      {total.rate}%
+                      {total.leave}
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={6} align="center">
-                      {total.late}
+                      {total.makeup}
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={7} align="center">
-                      {total.early}
+                      {total.exceptions}
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={8} align="center">
-                      {total.absent}
+                      {total.rate}%
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={9} align="center">
-                      {total.partial}
+                      {total.late}
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={10} align="center">
-                      —
+                      {total.early}
                     </Table.Summary.Cell>
                     <Table.Summary.Cell index={11} align="center">
-                      —
+                      {total.absent}
                     </Table.Summary.Cell>
+                    <Table.Summary.Cell index={12} align="center">{total.partial}</Table.Summary.Cell>
+                    <Table.Summary.Cell index={13} align="center">—</Table.Summary.Cell>
+                    <Table.Summary.Cell index={14} align="center">—</Table.Summary.Cell>
                   </Table.Summary.Row>
                 </Table.Summary>
               ) : null
@@ -225,8 +235,7 @@ const ReportView = ({ month, scope, canViewAll, onScopeChange, onRule, onError }
       </div>
 
       <div className={styles["tm-foot"]}>
-        统计口径：工作时间为 {data?.rule.work_on_time || "09:05"} 上班、
-        {data?.rule.work_off_time || "18:00"} 下班；工作日按周一至周五；今天未到下班点不计入缺卡。
+        今天下班前不计缺卡。补卡按生成的打卡记录计次，有效异常排除已忽略和自动核销的记录。
         生成时间 {data?.generated_at || "—"}
       </div>
     </div>

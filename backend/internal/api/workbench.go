@@ -62,30 +62,26 @@ func (s *Server) WorkbenchSummary(c *gin.Context) {
 
 	// ---------- 今日打卡 ----------
 	resp := workbenchCheckin{}
-	cur, err := s.Store.Checkins().Find(ctx, bson.M{
+	list, err := s.loadVisibleCheckins(ctx, bson.M{
 		"company_id": s.Cfg.CompanyID,
 		"user_id":    uid,
 		"date":       date,
 	})
-	if err == nil {
-		var list []model.CheckinRecord
-		if e := cur.All(ctx, &list); e == nil {
-			for i := range list {
-				r := list[i]
-				switch r.Type {
-				case "on":
-					resp.HasOn = true
-					resp.OnTime = hhmm(r.CheckinTime)
-					resp.OnStatus = r.StatusText
-					if r.LocationName != "" {
-						resp.Location = r.LocationName
-					}
-				case "off":
-					resp.HasOff = true
-					resp.OffTime = hhmm(r.CheckinTime)
-					resp.OffStatus = r.StatusText
-				}
-			}
+	if err != nil {
+		fail(c, "查询今日打卡失败")
+		return
+	}
+	for _, r := range list {
+		switch r.Type {
+		case "on":
+			resp.HasOn = true
+			resp.OnTime = hhmm(r.CheckinTime)
+			resp.OnStatus = r.StatusText
+			resp.Location = r.LocationName
+		case "off":
+			resp.HasOff = true
+			resp.OffTime = hhmm(r.CheckinTime)
+			resp.OffStatus = r.StatusText
 		}
 	}
 	switch {
@@ -135,22 +131,20 @@ func (s *Server) WorkbenchSummary(c *gin.Context) {
 		// 2. 审批待办：日报点评/审阅、请假、补卡、考勤异常，全部来自同一个聚合函数。
 		//    以前这里自己 count、审批中心自己查，出现过"显示 2 条点进去 0 条"，
 		//    现在两处共用 approvalItems，数字永远等于列表长度。
-		if s.canUseScope(ctx, uid, ScopeTeam) {
-			if items, e := s.approvalItems(ctx, uid, TabPending, ""); e == nil && len(items) > 0 {
-				todos = append(todos, workbenchTodo{
-					Key: "approval", Dot: "#F0A020",
-					Text:   itoa(len(items)) + " 条审批待你处理",
-					Action: "去处理", Path: "/approvals",
-				})
-			}
+		if items, e := s.approvalItems(ctx, uid, TabPending, ""); e == nil && len(items) > 0 {
+			todos = append(todos, workbenchTodo{
+				Key: "approval", Dot: "#F0A020",
+				Text:   itoa(len(items)) + " 条审批待你处理",
+				Action: "去处理", Path: "/approvals?tab=pending",
+			})
 		}
 
-		// 3. 我自己的考勤异常（还没申诉、也没被处理的）
-		if n := s.openExceptionCount(ctx, []string{uid}); n > 0 {
+		// 3. 我自己的未处理或已申诉待认定异常。
+		if items, err := s.personalPendingExceptionItems(ctx, uid); err == nil && len(items) > 0 {
 			todos = append(todos, workbenchTodo{
 				Key: "exception", Dot: "#E34D59",
-				Text:   itoa(n) + " 条考勤异常待处理",
-				Action: "去查看", Path: "/approvals?tab=mine",
+				Text:   itoa(len(items)) + " 条考勤异常待处理",
+				Action: "去查看", Path: "/approvals?tab=mine&kind=exception&status=pending",
 			})
 		}
 
@@ -159,7 +153,7 @@ func (s *Server) WorkbenchSummary(c *gin.Context) {
 			todos = append(todos, workbenchTodo{
 				Key: "notice", Dot: "#0089FF",
 				Text:   itoa(n) + " 条新通知",
-				Action: "去查看", Path: "/approvals?tab=mine",
+				Action: "去查看", Path: "/notifications",
 			})
 		}
 

@@ -9,28 +9,27 @@ import {
 } from "@ant-design/icons";
 import { App as AntdApp, Button, Empty, Spin } from "antd";
 import clsx from "clsx";
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-  archiveReport,
-  escalateReport,
-  formatFileSize,
   fileIdOf,
+  formatFileSize,
   getAllReportsForReview,
   getFileLink,
   getMe,
-  getReviewList,
-  reportTypeText,
-  submitReview,
   type OaIdentity,
   type ReportRecord,
+  reportTypeText,
+  submitReview,
 } from "@/api/oaApi";
 
 import styles from "./index.module.scss";
 
 export const ReportReview = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const targetId = searchParams.get("report_id") || undefined;
   const { message } = AntdApp.useApp();
 
   // 附件在 MinIO 里，直链需要 token；<a href> 带不了 header，
@@ -57,6 +56,7 @@ export const ReportReview = () => {
   };
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [me, setMe] = useState<OaIdentity | null>(null);
   const [tab, setTab] = useState<"pending" | "archived">("pending");
   const [pendingList, setPendingList] = useState<ReportRecord[]>([]);
@@ -65,50 +65,53 @@ export const ReportReview = () => {
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // 身份决定视角：组长做「点评 + 上报」，领导做「点评 + 归档」
-  const isManager = me?.role === "manager";
-  const isLeader = me?.role === "leader" || me?.role === "hr" || me?.role === "admin";
-  const canView = isManager || isLeader;
-
-  const reload = async (identity: OaIdentity) => {
-    if (identity.role === "manager") {
-      const res = await getReviewList("manager");
-      setPendingList(res.list);
-      setArchivedList([]);
-      return res.list;
-    }
-    const all = await getAllReportsForReview();
-    setPendingList(all.filter((r) => r.status === "pending_leader"));
-    setArchivedList(all.filter((r) => r.status === "archived"));
-    return all;
-  };
+  const showReports = useCallback((reports: ReportRecord[]) => {
+    const pending = reports.filter((r) => r.status !== "archived");
+    const archived = reports.filter((r) => r.status === "archived");
+    setPendingList(pending);
+    setArchivedList(archived);
+    setTab(pending.length || !archived.length ? "pending" : "archived");
+    setSelectedId((id) =>
+      pending.some((r) => r.report_id === id)
+        ? id
+        : (pending[0] || archived[0])?.report_id,
+    );
+  }, []);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       setLoading(true);
+      setLoadError(false);
+      showReports([]);
+      setComment("");
       try {
-        const identity = await getMe();
+        const [identity, reports] = await Promise.all([
+          getMe(),
+          getAllReportsForReview(targetId),
+        ]);
+        if (!active) return;
         setMe(identity);
-        const ok = ["manager", "leader", "hr", "admin"].includes(identity.role);
-        if (ok) {
-          const all = await reload(identity);
-          // 待查阅为空时直接落到「已归档」，避免领导进页面看到一片空白
-          const hasPending = all.some((r) => r.status === "pending_leader");
-          const initial = hasPending ? "pending" : "archived";
-          setTab(initial);
-          const pool = hasPending ? all.filter((r) => r.status === "pending_leader") : all.filter((r) => r.status === "archived");
-          if (pool[0]) setSelectedId(pool[0].report_id);
-        }
+        showReports(reports);
       } catch {
-        message.error("加载失败，请稍后重试");
+        if (active) setLoadError(true);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      active = false;
+    };
+  }, [showReports, targetId]);
 
-  const list = isManager ? pendingList : tab === "pending" ? pendingList : archivedList;
+  const list = tab === "pending" ? pendingList : archivedList;
   const selected = list.find((r) => r.report_id === selectedId) || list[0];
+  const actions = selected?.review_actions;
+  const actionLabel = actions?.can_escalate
+    ? "点评并上报"
+    : actions?.can_archive
+    ? "提交点评并归档"
+    : "保存点评";
 
   const switchTab = (t: "pending" | "archived") => {
     setTab(t);
@@ -123,36 +126,48 @@ export const ReportReview = () => {
   };
 
   const doSubmit = async () => {
-    if (!selected) return;
+    if (!selected || !actions?.can_comment) return;
     if (!comment.trim()) {
       message.warning("先写下点评内容");
       return;
     }
     setSubmitting(true);
     try {
-      if (isManager) {
-        await submitReview(selected.report_id, comment.trim(), "manager");
-        await escalateReport(selected.report_id);
-        message.success("点评已提交，并已上报领导");
-      } else {
-        await submitReview(selected.report_id, comment.trim(), "leader");
-        await archiveReport(selected.report_id);
-        message.success("点评已提交并归档");
-      }
-      const idx = list.findIndex((r) => r.report_id === selected.report_id);
-      const next = list[idx + 1] || list[idx - 1];
-      const all = me ? await reload(me) : [];
+      await submitReview(
+        selected.report_id,
+        comment.trim(),
+        selected.status === "pending_leader" ? "leader" : "manager",
+        actions.can_escalate || actions.can_archive,
+      );
       setComment("");
-      setSelectedId(next?.report_id || all[0]?.report_id);
+      message.success(
+        actions.can_escalate
+          ? "点评已提交，已上报终审"
+          : actions.can_archive
+          ? "点评已提交并归档"
+          : "点评已保存",
+      );
     } catch (e) {
       message.error(e instanceof Error ? e.message : "提交失败，请重试");
+      setSubmitting(false);
+      return;
+    }
+    try {
+      showReports(await getAllReportsForReview(targetId));
+    } catch {
+      showReports([]);
+      setLoadError(true);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const managerReview = selected?.reviews.find((r) => r.role === "manager");
-  const leaderReview = selected?.reviews.find((r) => r.role === "leader");
+  const managerReview = selected?.reviews
+    .filter((r) => r.role === "manager")
+    .slice(-1)[0];
+  const leaderReview = selected?.reviews
+    .filter((r) => r.role === "leader")
+    .slice(-1)[0];
 
   return (
     <div className={styles["review-page"]}>
@@ -160,7 +175,6 @@ export const ReportReview = () => {
         <div className={styles["topbar-left"]}>
           <ArrowLeftOutlined onClick={() => navigate("/work")} />
           <span>报告查阅</span>
-          <span className={styles["badge"]}>{isManager ? "组长视角" : isLeader ? "领导视角" : "独立页面"}</span>
         </div>
         <div className={styles["topbar-user"]}>
           <span className={styles.avatar}>{(me?.real_name || "?").slice(0, 1)}</span>
@@ -170,22 +184,22 @@ export const ReportReview = () => {
 
       <Spin spinning={loading}>
         <div className={styles["review-body"]}>
-          {!canView ? (
-            <div className={styles["empty-detail"]}>报告查阅仅组长与领导可用</div>
+          {loadError ? (
+            <div className={styles["empty-detail"]}>
+              {targetId
+                ? "无法打开该日报，请确认查阅权限后重试"
+                : "加载失败，请稍后重试"}
+            </div>
           ) : (
             <>
               <aside className={styles["list-panel"]}>
-                {isManager ? (
-                  <div className={styles["tabs"]}>
-                    <button className={styles.active}>待我查阅 {pendingList.length}</button>
-                  </div>
-                ) : (
+                {!targetId && (
                   <div className={styles.tabs}>
                     <button
                       className={clsx({ [styles.active]: tab === "pending" })}
                       onClick={() => switchTab("pending")}
                     >
-                      待查阅 {pendingList.length}
+                      待我查阅 {pendingList.length}
                     </button>
                     <button
                       className={clsx({ [styles.active]: tab === "archived" })}
@@ -213,11 +227,12 @@ export const ReportReview = () => {
                             [styles.done]: r.status === "archived",
                           })}
                         >
-                          {isManager ? "待点评" : r.status === "archived" ? "已归档" : "待查阅"}
+                          {reviewStatusText(r.status)}
                         </span>
                       </div>
                       <div className={styles["list-meta"]}>
-                        {r.author.department} · {reportTypeText(r.type)} · 全文约 {wordCount(r)} 字
+                        {r.author.department} · {reportTypeText(r.type)} · 全文约{" "}
+                        {wordCount(r)} 字
                       </div>
                     </div>
                   ))
@@ -227,28 +242,29 @@ export const ReportReview = () => {
               <div className={styles["detail-panel"]}>
                 {!selected ? (
                   <div className={styles["empty-detail"]}>
-                    {isManager ? "暂无待查阅日报" : "选择左侧报告开始查阅"}
+                    {tab === "pending" ? "暂无待查阅日报" : "暂无已归档日报"}
                   </div>
                 ) : (
                   <>
                     <div className={styles["detail-head-card"]}>
-                      <div className={styles.avatar}>{selected.author.name.slice(0, 1)}</div>
+                      <div className={styles.avatar}>
+                        {selected.author.name.slice(0, 1)}
+                      </div>
                       <div className={styles["head-info"]}>
                         <div className={styles["head-name"]}>
                           {selected.author.name}
-                          <span className={styles["head-dept"]}>{selected.author.department}</span>
+                          <span className={styles["head-dept"]}>
+                            {selected.author.department}
+                          </span>
                         </div>
                         <div className={styles["head-meta"]}>
                           {selected.period} {reportTypeText(selected.type)} · 提交于{" "}
-                          {timeText(selected.submit_time)} · 全文约 {wordCount(selected)} 字
+                          {timeText(selected.submit_time)} · 全文约{" "}
+                          {wordCount(selected)} 字
                         </div>
                       </div>
                       <span className={styles["head-status"]}>
-                        {selected.status === "archived"
-                          ? "已归档"
-                          : selected.status === "pending_leader"
-                            ? "待领导查阅"
-                            : "待组长查阅"}
+                        {reviewStatusText(selected.status)}
                       </span>
                     </div>
 
@@ -274,11 +290,13 @@ export const ReportReview = () => {
 
                     {managerReview && (
                       <div className={styles["card"]}>
-                        <div className={styles["card-title"]}>组长点评</div>
+                        <div className={styles["card-title"]}>直属上级点评</div>
                         <div className={styles["review-quote"]}>
-                          <div className={styles["quote-text"]}>{managerReview.comment}</div>
+                          <div className={styles["quote-text"]}>
+                            {managerReview.comment}
+                          </div>
                           <div className={styles["quote-author"]}>
-                            {managerReview.reviewer_name} · 组长 · {managerReview.review_time}
+                            {managerReview.reviewer_name} · {managerReview.review_time}
                           </div>
                         </div>
                       </div>
@@ -286,35 +304,43 @@ export const ReportReview = () => {
 
                     {leaderReview && (
                       <div className={styles["card"]}>
-                        <div className={styles["card-title"]}>领导点评</div>
+                        <div className={styles["card-title"]}>终审点评</div>
                         <div className={styles["review-quote"]}>
-                          <div className={styles["quote-text"]}>{leaderReview.comment}</div>
+                          <div className={styles["quote-text"]}>
+                            {leaderReview.comment}
+                          </div>
                           <div className={styles["quote-author"]}>
-                            {leaderReview.reviewer_name} · 领导 · {leaderReview.review_time}
+                            {leaderReview.reviewer_name} · {leaderReview.review_time}
                           </div>
                         </div>
                       </div>
                     )}
 
                     <div className={styles.card}>
-                      <div className={styles["card-title"]}>附件 {selected.attachments.length}</div>
+                      <div className={styles["card-title"]}>
+                        附件 {selected.attachments.length}
+                      </div>
                       {selected.attachments.length === 0 ? (
                         <div className={styles["no-attachment"]}>无附件</div>
                       ) : (
                         selected.attachments.map((a, i) => (
                           <div key={i} className={styles["attachment-row"]}>
                             <span className={styles["file-icon"]}>
-                              {["jpg", "jpeg", "png", "gif", "webp"].includes(a.file_type) ? (
+                              {["jpg", "jpeg", "png", "gif", "webp"].includes(
+                                a.file_type,
+                              ) ? (
                                 <PictureOutlined />
                               ) : (
                                 <FileTextOutlined />
                               )}
                             </span>
                             <span className={styles["file-name"]}>{a.name}</span>
-                            <span className={styles["file-size"]}>{formatFileSize(a.size)}</span>
+                            <span className={styles["file-size"]}>
+                              {formatFileSize(a.size)}
+                            </span>
                             <span
                               className={styles.download}
-                              onClick={() => openAttachment(a.url, a.name)}
+                              onClick={() => void openAttachment(a.url, a.name)}
                             >
                               <DownloadOutlined /> 下载
                             </span>
@@ -330,30 +356,34 @@ export const ReportReview = () => {
                           该日报已归档，审阅流程结束，内容与点评均不可再修改。
                         </span>
                       </div>
-                    ) : (
+                    ) : actions?.can_comment ? (
                       <div className={styles.card}>
                         <div className={styles["card-title"]}>我的点评</div>
                         <textarea
                           className={styles["comment-input"]}
-                          placeholder={isManager ? "写下点评，确认后可上报领导…" : "写下你的点评…"}
+                          placeholder="写下你的点评…"
                           value={comment}
                           onChange={(e) => setComment(e.target.value)}
                         />
                         <div className={styles["comment-actions"]}>
                           <span className={styles["auto-tip"]}>
-                            {isManager ? "上报后进入领导查阅" : "提交后自动打开下一条"}
+                            {actions.can_escalate
+                              ? "上报后进入终审"
+                              : actions.can_archive
+                              ? "确认后结束审阅流程"
+                              : "尚未配置终审人"}
                           </span>
                           <Button
                             type="primary"
                             className={styles["submit-btn"]}
                             loading={submitting}
-                            onClick={doSubmit}
+                            onClick={() => void doSubmit()}
                           >
-                            {isManager ? "点评并上报领导" : "提交点评并归档"}
+                            {actionLabel}
                           </Button>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </>
                 )}
               </div>
@@ -365,7 +395,15 @@ export const ReportReview = () => {
   );
 };
 
-function Section({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+function Section({
+  icon,
+  title,
+  text,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+}) {
   return (
     <div className={styles.section}>
       <div className={styles["section-title"]}>
@@ -383,10 +421,26 @@ function wordCount(r: ReportRecord) {
   return (c.done || "").length + (c.plan || "").length + (c.issues || "").length;
 }
 
+function reviewStatusText(status: ReportRecord["status"]) {
+  switch (status) {
+    case "draft":
+      return "草稿";
+    case "submitted":
+      return "待直属上级点评";
+    case "pending_leader":
+      return "待终审";
+    case "archived":
+      return "已归档";
+  }
+}
+
 function timeText(ts?: number) {
   if (!ts) return "—";
   const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(
+    2,
+    "0",
+  )}`;
 }
 
 export default ReportReview;

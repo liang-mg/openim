@@ -76,7 +76,9 @@ const MonthCalendar = ({
               onClick={() => onSelect?.(date)}
             >
               <span className={styles["att-day"]}>{Number(date.slice(8, 10))}</span>
-              {e?.on || e?.off ? (
+              {st === "leave" ? (
+                <span className={styles["att-approved-leave"]}>请假</span>
+              ) : e?.on || e?.off ? (
                 <span className={styles["att-times"]}>
                   <span className={e?.on && e.on.status !== "normal" ? styles["att-t-warn"] : undefined}>
                     {e?.on ? fmtTime(e.on.checkin_time) : "—"}

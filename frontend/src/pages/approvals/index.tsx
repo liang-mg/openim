@@ -28,6 +28,7 @@ import {
   scanExceptions,
   urgeReports,
   type ApprovalItem,
+  type ApprovalKind,
   type ApprovalTab,
   type OaIdentity,
   type SubmitRateResult,
@@ -65,7 +66,7 @@ function statusText(item: ApprovalItem) {
   return REQUEST_STATUS_TEXT[item.status as keyof typeof REQUEST_STATUS_TEXT] || item.status;
 }
 
-type TabKey = ApprovalTab | "report-rate";
+type TabKey = ApprovalTab | "report-rate" | "my-exceptions";
 
 type Pending = {
   item: ApprovalItem;
@@ -77,18 +78,35 @@ export const Approvals = () => {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   // 工作台待办会带 ?tab=pending 进来，直接定位到对应页签
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const requestedTab = params.get("tab");
+  const requestedKind = params.get("kind");
+  const requestedItem = params.get("item_id");
+  const requestedScope = params.get("scope");
+  const scope = requestedScope === "all" || requestedScope === "team" ? requestedScope : undefined;
+  const departmentId = params.get("department_id") || undefined;
+  const initialRateDate = dayjs(params.get("date") || undefined);
+  const personalPending = requestedTab === "mine" &&
+    requestedKind === "exception" && params.get("status") === "pending";
+  const tab: TabKey = personalPending ? "my-exceptions" :
+    requestedTab === "mine" || requestedTab === "done" || requestedTab === "report-rate"
+      ? requestedTab : "pending";
+  const kind: ApprovalKind | undefined =
+    requestedKind === "leave" || requestedKind === "makeup" ||
+      requestedKind === "exception" || requestedKind === "report" ? requestedKind : undefined;
 
   const [me, setMe] = useState<OaIdentity | null>(null);
-  const [tab, setTab] = useState<TabKey>((params.get("tab") as TabKey) || "pending");
   const [list, setList] = useState<ApprovalItem[]>([]);
   const [pending, setPending] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<Pending | null>(null);
-  const [rateDate, setRateDate] = useState(dayjs());
+  const [rateDate, setRateDate] = useState(initialRateDate.isValid() ? initialRateDate : dayjs());
   const [rate, setRate] = useState<SubmitRateResult | null>(null);
   const [rateLoading, setRateLoading] = useState(false);
+  const visibleItems = requestedItem ? list.filter((item) => item.id === requestedItem) : list;
+  const canUrge = !departmentId && rate != null && rate.scope !== "mine" &&
+    rateDate.format("YYYY-MM-DD") === rate.today;
 
   const handleError = useCallback((e: unknown, fallback: string) => {
     message.error(e instanceof Error ? e.message : fallback);
@@ -98,13 +116,19 @@ export const Approvals = () => {
     void getMe().then(setMe).catch(() => {});
   }, []);
 
-  const canManage = !!me?.can_view_team;
+  const canManage = !!(me?.can_view_team || me?.can_view_all);
 
   const load = useCallback(async () => {
     if (tab === "report-rate") return;
     setLoading(true);
     try {
-      const data = await getApprovalList({ tab: tab as ApprovalTab });
+      const data = await getApprovalList({
+        tab: personalPending ? "mine" : (tab as ApprovalTab),
+        kind,
+        status: personalPending ? "pending" : undefined,
+        scope,
+        departmentId,
+      });
       setList(data.list || []);
       setPending(data.pending || 0);
     } catch (e) {
@@ -113,14 +137,14 @@ export const Approvals = () => {
     } finally {
       setLoading(false);
     }
-  }, [tab, handleError]);
+  }, [tab, kind, personalPending, scope, departmentId, handleError]);
 
   useEffect(() => { void load(); }, [load]);
 
   const loadRate = useCallback(async () => {
     setRateLoading(true);
     try {
-      const data = await getSubmitRate({ date: rateDate.format("YYYY-MM-DD") });
+      const data = await getSubmitRate({ date: rateDate.format("YYYY-MM-DD"), scope, departmentId });
       setRate(data);
     } catch (e) {
       handleError(e, "加载提交率失败");
@@ -128,7 +152,7 @@ export const Approvals = () => {
     } finally {
       setRateLoading(false);
     }
-  }, [rateDate, handleError]);
+  }, [rateDate, scope, departmentId, handleError]);
 
   useEffect(() => {
     if (tab === "report-rate") void loadRate();
@@ -176,18 +200,27 @@ export const Approvals = () => {
   }, [load, handleError, message]);
 
   const doUrge = useCallback(async () => {
+    if (!canUrge) return;
     setBusy(true);
     try {
-      const r = await urgeReports(rateDate.format("YYYY-MM-DD"));
-      const suffix = r.pushed ? "（已同步 IM）" : "（仅站内信，未配置 IM 推送）";
-      message.success(`已催交 ${r.urged} 人，跳过 ${r.skipped} 人 ${suffix}`);
+      const result = await urgeReports(rateDate.format("YYYY-MM-DD"), rate?.scope);
+      const details = [
+        `站内通知 ${result.urged} 人`,
+        result.skipped > 0 && `已催交 ${result.skipped} 人`,
+        result.failed > 0 && `站内发送失败 ${result.failed} 人`,
+        result.im_succeeded > 0 && `IM 请求成功 ${result.im_succeeded} 人`,
+        result.im_failed > 0 && `IM 发送失败 ${result.im_failed} 人`,
+        result.im_not_configured > 0 && "未配置 IM",
+      ].filter(Boolean).join("，");
+      if (result.failed > 0 || result.im_failed > 0) message.warning(details);
+      else message.success(details);
       void loadRate();
     } catch (e) {
       handleError(e, "催交失败");
     } finally {
       setBusy(false);
     }
-  }, [rateDate, loadRate, handleError, message]);
+  }, [canUrge, rateDate, rate?.scope, loadRate, handleError, message]);
 
   const tabs = useMemo(() => {
     const base = [
@@ -195,9 +228,10 @@ export const Approvals = () => {
       { label: "我发起的", value: "mine" as TabKey },
       { label: "已处理", value: "done" as TabKey },
     ];
+    if (personalPending) base.push({ label: "我的待处理异常", value: "my-exceptions" });
     if (canManage) base.push({ label: "日报提交", value: "report-rate" });
     return base;
-  }, [pending, canManage]);
+  }, [pending, canManage, personalPending]);
 
   const columns: ColumnsType<ApprovalItem> = [
     {
@@ -256,7 +290,10 @@ export const Approvals = () => {
           );
         }
         // 我发起的页：自己的异常还没处理时可以申诉（自己不能处理自己的）
-        if (tab === "mine" && r.kind === "exception" && r.status === "open") {
+        if ((tab === "mine" || personalPending) && r.kind === "exception" && r.status === "open") {
+          if (personalPending) {
+            return <a onClick={() => setAction({ item: r, action: "appeal", comment: "" })}>申诉</a>;
+          }
           return (
             <div className={styles["ap-op"]}>
               <a onClick={() => setAction({ item: r, action: "appeal", comment: "" })}>申诉</a>
@@ -264,6 +301,7 @@ export const Approvals = () => {
             </div>
           );
         }
+        if (personalPending) return "—";
         return <a onClick={() => navigate(r.path)}>查看</a>;
       },
     },
@@ -299,15 +337,26 @@ export const Approvals = () => {
         <Segmented
           className={styles["ap-segmented"]}
           value={tab}
-          onChange={(v) => setTab(v as TabKey)}
+          onChange={(v) => {
+            if (v !== "my-exceptions") setParams({ tab: String(v) });
+          }}
           options={tabs}
         />
         <span className={styles["ap-hint"]}>
           {tab === "pending" && "待我处理：下属的请假、补卡、考勤异常，以及待点评/待审阅的日报"}
-          {tab === "mine" && "我发起的申请与我的考勤异常"}
+          {tab === "mine" && "我发起的申请、日报与考勤异常"}
           {tab === "done" && "我已处理过的记录"}
           {tab === "report-rate" && "按部门统计当日日报提交情况，可一键催交未提交的人"}
         </span>
+        {requestedItem && (
+          <Button type="link" onClick={() => {
+            const next = new URLSearchParams(params);
+            next.delete("item_id");
+            setParams(next);
+          }}>
+            查看全部记录
+          </Button>
+        )}
       </div>
 
       <div className={styles["ap-body"]}>
@@ -319,9 +368,11 @@ export const Approvals = () => {
                   className={styles["ap-table"]}
                   rowKey={(r) => `${r.kind}-${r.id}`}
                   columns={columns}
-                  dataSource={list}
-                  pagination={list.length > 20 ? { pageSize: 20, size: "small" } : false}
-                  locale={{ emptyText: tab === "pending" ? "暂无待处理事项" : "暂无记录" }}
+                  dataSource={visibleItems}
+                  pagination={visibleItems.length > 20 ? { pageSize: 20, size: "small" } : false}
+                  locale={{ emptyText: requestedItem
+                    ? "当前列表没有这条记录"
+                    : tab === "pending" ? "暂无待处理事项" : "暂无记录" }}
                 />
               </Spin>
             </div>
@@ -340,10 +391,14 @@ export const Approvals = () => {
                   type="primary"
                   icon={<SendOutlined />}
                   loading={busy}
+                  disabled={!canUrge || rateLoading}
                   onClick={() => void doUrge()}
                 >
                   催交未提交
                 </Button>
+                {rate && rateDate.format("YYYY-MM-DD") !== rate.today && (
+                  <span className={styles["ap-muted"]}>只可催交当天日报</span>
+                )}
                 {rate && (
                   <span className={styles["ap-rate-total"]}>
                     全范围 {rate.done}/{rate.total} 已交，提交率 <b>{rate.rate}%</b>

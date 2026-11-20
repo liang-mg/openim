@@ -258,7 +258,8 @@
 .col-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 
 .link-btn {
@@ -383,5 +384,42 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+  }
+}
+.department-tree {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+
+  ul {
+    margin-left: 12px;
+    padding-left: 16px;
+    border-left: 1px solid #e1e6ef;
+    list-style: none;
+  }
+}
+
+.department-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.department-migration {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e1e6ef;
+}
+
+.department-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+
+  :global(.ant-select) {
+    min-width: 180px;
   }
 }

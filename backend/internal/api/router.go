@@ -52,6 +52,7 @@ func (s *Server) Router() *gin.Engine {
 	}))
 	{
 		g.GET("/me", s.Me)
+		g.GET("/organization/departments", s.VisibleDepartments)
 		g.GET("/workbench/summary", s.WorkbenchSummary)
 
 		// 上传与取链接需要登录态
@@ -70,6 +71,7 @@ func (s *Server) Router() *gin.Engine {
 		g.GET("/checkin/team/:user_id", s.TeamMemberCheckin)
 		// 出勤报表（含 ?format=csv 直接下载）
 		g.GET("/checkin/report", s.AttendanceReport)
+		g.GET("/management/dashboard", s.ManagementDashboard)
 
 		// 请假 / 补卡：申请即落表、审批改状态、通过后合并进出勤统计
 		g.POST("/leave/submit", s.SubmitLeave)
@@ -100,6 +102,8 @@ func (s *Server) Router() *gin.Engine {
 		// 站内通知（IM 推送是同一条记录的附加送达方式）
 		g.GET("/notifications/list", s.NotificationList)
 		g.POST("/notifications/read", s.NotificationRead)
+		g.GET("/announcements/:id", s.AnnouncementDetail)
+		g.POST("/announcements/:id/read", s.ReadAnnouncement)
 
 		g.GET("/report/overview", s.ReportOverview)
 		g.POST("/report/submit", s.SubmitReport)
@@ -115,6 +119,15 @@ func (s *Server) Router() *gin.Engine {
 		g.GET("/admin/im-users", s.IMUserCandidates)
 		g.POST("/admin/employee/save", s.SaveEmployee)
 		g.POST("/admin/employee/disable", s.DisableEmployee)
+		g.GET("/admin/departments", s.DepartmentList)
+		g.GET("/admin/audit", s.AuditList)
+		g.GET("/admin/announcements", s.PublishedAnnouncements)
+		g.POST("/admin/announcements", s.PublishAnnouncement)
+		g.GET("/admin/announcements/:id/receipts", s.AnnouncementReceipts)
+		g.GET("/admin/contract", s.EmployeeContract)
+		g.POST("/admin/contract/save", s.SaveEmployeeContract)
+		g.POST("/admin/department/save", s.SaveDepartment)
+		g.POST("/admin/department/migrate", s.MigrateDepartment)
 	}
 	return r
 }

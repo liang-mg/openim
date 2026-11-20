@@ -14,10 +14,13 @@ export function stateOfDay(
   todayKey: string,
   now: Date,
   rule?: CheckinRule,
+  approvedLeave = false,
 ): DayState {
+  if (approvedLeave) return "leave";
+  const dayRule = pair?.on?.rule_snapshot || pair?.off?.rule_snapshot || rule;
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const onMin = hmMinutes(rule?.work_on_time || "09:05");
-  const offMin = hmMinutes(rule?.work_off_time || "18:00");
+  const onMin = hmMinutes(dayRule?.work_on_time || "09:05") + (dayRule?.late_grace ?? 0);
+  const offMin = hmMinutes(dayRule?.work_off_time || "18:00");
 
   const hasOn = !!pair?.on;
   const hasOff = !!pair?.off;
@@ -31,6 +34,6 @@ export function stateOfDay(
   if (date > todayKey) return "future";
   if (date === todayKey && nowMin < onMin) return "future";
   const d = new Date(`${date}T00:00:00`);
-  if (d.getDay() === 0 || d.getDay() === 6) return "weekend";
+  if (!(dayRule?.workdays ?? [1, 2, 3, 4, 5]).includes(d.getDay())) return "weekend";
   return "absent";
 }

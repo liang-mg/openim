@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/xinbo/xinbo-oa/internal/auth"
 	"github.com/xinbo/xinbo-oa/internal/model"
@@ -26,6 +26,7 @@ import (
 
 // exceptionPending 待处理状态集合（open 未处理 / appealed 已申诉待认定）
 var exceptionPending = bson.M{"$in": []string{"open", "appealed"}}
+var leaveMissingKinds = []string{model.ExcAbsent, model.ExcMissingOn, model.ExcMissingOff}
 
 func exceptionStatusText(s string) string {
 	switch s {
@@ -63,9 +64,13 @@ func (s *Server) scanExceptionsFor(ctx context.Context, ids []string, from, to s
 		nameOf[e.UserID] = e
 	}
 
-	today := todayStr(time.Now())
-	rule := s.todayRule()
-	nowMin := minuteOfDay(time.Now())
+	now := time.Now()
+	today := todayStr(now)
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		return res, err
+	}
+	nowMin := minuteOfDay(now)
 
 	// 跨月时按月分批：loadMonth 与 approvedLeaveDays 都是按月查的
 	months := map[string]bool{}
@@ -78,7 +83,11 @@ func (s *Server) scanExceptionsFor(ctx context.Context, ids []string, from, to s
 		if lerr != nil {
 			return res, lerr
 		}
-		leaveByUser := s.approvedLeaveDays(ctx, ids, month)
+		leaveByUser, err := s.loadApprovedLeaveDays(ctx, ids, month)
+		if err != nil {
+			return res, err
+		}
+		missingDays := map[string]map[string]bool{}
 
 		for _, uid := range ids {
 			emp, hasEmp := nameOf[uid]
@@ -87,26 +96,36 @@ func (s *Server) scanExceptionsFor(ctx context.Context, ids []string, from, to s
 			}
 			days := byUser[uid]
 			leaves := leaveByUser[uid]
+			missing := map[string]bool{}
 			for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 				date := todayStr(d)
-				if date > today || isWeekendDate(date) {
+				if date[:7] != month || date > today {
+					continue
+				}
+				if leaves[date] {
+					missing[date] = true
+					continue
+				}
+				pair := days[date]
+				rule := dayCheckinRule(pair, checkinRuleOf(timeline.forDay(emp.DepartmentID, date)))
+				if !isWorkday(date, rule.Workdays) {
 					continue
 				}
 				// 今天还没到下班的点，一切都不算数——不然早上九点全组都是"缺下班卡"
 				if date == today && nowMin < parseHM(rule.WorkOffTime) {
 					continue
 				}
-				// 已批准请假：人本来就不用上班，不产异常
-				if leaves[date] {
-					continue
-				}
 				res.Scanned++
 
-				kinds := exceptionKindsOf(days[date], rule)
+				kinds := exceptionKindsOf(pair, rule)
 				for _, k := range kinds {
 					created, uerr := s.upsertException(ctx, emp, date, k.Kind, k.Note, k.CheckinID)
 					if uerr != nil {
 						return res, uerr
+					}
+					switch k.Kind {
+					case model.ExcAbsent, model.ExcMissingOn, model.ExcMissingOff:
+						missing[date] = true
 					}
 					if created {
 						res.Created++
@@ -115,9 +134,37 @@ func (s *Server) scanExceptionsFor(ctx context.Context, ids []string, from, to s
 					}
 				}
 			}
+			if len(missing) > 0 {
+				missingDays[uid] = missing
+			}
+		}
+		if err := s.reconcileScannedLeave(ctx, month, missingDays); err != nil {
+			return res, err
 		}
 	}
 	return res, nil
+}
+
+func (s *Server) reconcileScannedLeave(ctx context.Context, month string, missingDays map[string]map[string]bool) error {
+	ids := make([]string, 0, len(missingDays))
+	for uid := range missingDays {
+		ids = append(ids, uid)
+	}
+	// Read after the writes. Approval that happens later will resolve cards already inserted.
+	approved, err := s.loadApprovedLeaveDays(ctx, ids, month)
+	if err != nil {
+		return err
+	}
+	for uid, leaves := range approved {
+		for date := range leaves {
+			if missingDays[uid][date] {
+				if err := s.autoResolveException(ctx, uid, date, leaveMissingKinds, "请假审批通过，自动核销"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type excKind struct {
@@ -143,16 +190,18 @@ func exceptionKindsOf(p *dayPair, rule model.CheckinRule) []excKind {
 	}
 
 	if hasOn && p.On.Status == "late" {
+		onRule := dayCheckinRule(&dayPair{On: p.On}, rule)
 		out = append(out, excKind{
 			Kind:      model.ExcLate,
-			Note:      fmt.Sprintf("%s 打卡，晚于上班时间 %s（宽限 %d 分钟）", hhmm(p.On.CheckinTime), rule.WorkOnTime, rule.LateGrace),
+			Note:      fmt.Sprintf("%s 打卡，晚于上班时间 %s（宽限 %d 分钟）", hhmm(p.On.CheckinTime), onRule.WorkOnTime, onRule.LateGrace),
 			CheckinID: p.On.ID,
 		})
 	}
 	if hasOff && p.Off.Status == "early" {
+		offRule := dayCheckinRule(&dayPair{Off: p.Off}, rule)
 		out = append(out, excKind{
 			Kind:      model.ExcEarly,
-			Note:      fmt.Sprintf("%s 打卡，早于下班时间 %s", hhmm(p.Off.CheckinTime), rule.WorkOffTime),
+			Note:      fmt.Sprintf("%s 打卡，早于下班时间 %s", hhmm(p.Off.CheckinTime), offRule.WorkOffTime),
 			CheckinID: p.Off.ID,
 		})
 	}
@@ -226,10 +275,6 @@ func (s *Server) ScanExceptions(c *gin.Context) {
 
 	now := time.Now()
 	to := todayStr(now)
-	// 今天还没到下班点就扫到昨天，免得把"还没下班"扫成缺卡
-	if minuteOfDay(now) < parseHM(s.todayRule().WorkOffTime) {
-		to = todayStr(now.AddDate(0, 0, -1))
-	}
 	from := todayStr(now.AddDate(0, 0, -(days - 1)))
 
 	ids := s.visibleUserIDs(ctx, uid, scope)
@@ -322,8 +367,14 @@ func (s *Server) ExceptionList(c *gin.Context) {
 		filter["kind"] = kind
 	}
 
-	cur, err := s.Store.Exceptions().Find(ctx, filter,
-		options.Find().SetSort(bson.D{{Key: "date", Value: -1}, {Key: "created_at", Value: -1}}).SetLimit(500))
+	summaryOnly := scope != ScopeMine && s.roleOf(ctx, uid) == "leader" && !s.isAdmin(ctx, uid)
+	query := options.Find().SetSort(bson.D{{Key: "date", Value: -1}, {Key: "created_at", Value: -1}})
+	if summaryOnly {
+		query.SetProjection(bson.M{"status": 1, "_id": 0})
+	} else {
+		query.SetLimit(500)
+	}
+	cur, err := s.Store.Exceptions().Find(ctx, filter, query)
 	if err != nil {
 		fail(c, "查询失败")
 		return
@@ -352,25 +403,38 @@ func (s *Server) ExceptionList(c *gin.Context) {
 		}
 	}
 
+	if summaryOnly {
+		list = []model.CheckinException{}
+	}
 	ok(c, model.ExceptionListResult{
 		Scope:   scope,
 		Month:   month,
 		Summary: sum,
-		Total:   len(list),
+		Total:   sum.Total,
 		List:    list,
 	})
 }
 
-// canHandleTarget 能不能处理这个人的异常：必须在自己能看到的范围里，且不是自己。
-// 沿用一个原则——权限看关系，不看角色字符串。
+func (s *Server) exceptionHandlingIDs(ctx context.Context, uid string) []string {
+	actor := s.getEmployee(ctx, uid)
+	if actor == nil || actor.Disabled {
+		return nil
+	}
+	if actor.IsAdmin || actor.Role == "hr" || actor.Role == "admin" {
+		return s.visibleUserIDs(ctx, uid, ScopeAll)
+	}
+	if actor.Role == "manager" {
+		return s.subordinateIDs(ctx, uid)
+	}
+	return nil
+}
+
+// canHandleTarget uses the same assigned scope as the approval queue.
 func (s *Server) canHandleTarget(ctx context.Context, uid, target string) bool {
 	if uid == target {
 		return false // 自己给自己认定异常没有意义
 	}
-	if s.isAdmin(ctx, uid) {
-		return true
-	}
-	for _, id := range s.visibleUserIDs(ctx, uid, ScopeTeam) {
+	for _, id := range s.exceptionHandlingIDs(ctx, uid) {
 		if id == target {
 			return true
 		}
@@ -439,9 +503,13 @@ func (s *Server) ExceptionHandle(c *gin.Context) {
 		}},
 	)
 	if err != nil || res.MatchedCount == 0 {
+		s.recordOperationAudit(ctx, uid, auditExceptionHandle, rec.ID, auditResultFailed)
 		fail(c, "处理失败或该异常已被他人处理")
 		return
 	}
+	s.recordOperationAudit(ctx, uid, auditExceptionHandle, rec.ID, auditResultSuccess,
+		auditChange("user_id", nil, rec.UserID), auditChange("date", nil, rec.Date),
+		auditChange("type", nil, rec.Kind), auditChange("status", rec.Status, status))
 
 	// 结果通知本人：被认定为异常（resolve）才通知，忽略就不打扰
 	if status == "resolved" {
@@ -488,9 +556,9 @@ func (s *Server) ExceptionAppeal(c *gin.Context) {
 
 // autoResolveException 业务动作自动核销异常：补卡通过后，当天的缺卡异常就不该再挂着。
 // 只核销 open/appealed 状态的同类异常，已被人处理过的不动。
-func (s *Server) autoResolveException(ctx context.Context, uid, date string, kinds []string, reason string) {
+func (s *Server) autoResolveException(ctx context.Context, uid, date string, kinds []string, reason string) error {
 	if len(kinds) == 0 {
-		return
+		return nil
 	}
 	_, err := s.Store.Exceptions().UpdateMany(ctx,
 		bson.M{
@@ -507,6 +575,7 @@ func (s *Server) autoResolveException(ctx context.Context, uid, date string, kin
 	if err != nil {
 		log.Printf("[exception] auto resolve failed uid=%s date=%s: %v", uid, date, err)
 	}
+	return err
 }
 
 // openExceptionCount 待处理异常数量（工作台待办用）。
@@ -526,20 +595,25 @@ func (s *Server) openExceptionCount(ctx context.Context, ids []string) int {
 	return int(n)
 }
 
-// AutoScanLoop 后台定时扫描：每 30 分钟扫最近 3 天。
-// 不用 cron 的原因是"最近 3 天"本身就能自愈——服务停一天，重启后第一次扫描就补齐了。
+// AutoScanLoop 在启动时及每半小时运行考勤扫描和提醒。
 func (s *Server) AutoScanLoop() {
 	if !s.Cfg.AutoScan {
 		log.Printf("[exception] auto scan disabled (OA_AUTO_SCAN=false)")
-		return
 	}
 	go func() {
-		// 启动先跑一次，把停机期间漏的补上
-		s.runAutoScan()
+		run := func() {
+			s.runPendingMakeupApprovals()
+			if s.Cfg.AutoScan {
+				s.runAutoScan()
+			}
+			s.runCheckinReminders()
+			s.runContractExpiryReminders()
+		}
+		run()
 		t := time.NewTicker(30 * time.Minute)
 		defer t.Stop()
 		for range t.C {
-			s.runAutoScan()
+			run()
 		}
 	}()
 }
@@ -567,9 +641,6 @@ func (s *Server) runAutoScan() {
 
 	now := time.Now()
 	to := todayStr(now)
-	if minuteOfDay(now) < parseHM(s.todayRule().WorkOffTime) {
-		to = todayStr(now.AddDate(0, 0, -1))
-	}
 	from := todayStr(now.AddDate(0, 0, -3))
 	res, err := s.scanExceptionsFor(ctx, ids, from, to)
 	if err != nil {

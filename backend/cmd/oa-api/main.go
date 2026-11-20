@@ -32,13 +32,14 @@ func main() {
 	if err = st.EnsureIndexes(ctx); err != nil {
 		log.Fatalf("ensure indexes failed: %v", err)
 	}
-	if err = st.SeedEmployees(ctx, cfg.CompanyID); err != nil {
-		log.Printf("seed employees failed (non-fatal): %v", err)
+	if cfg.SeedEmployees {
+		if err = st.SeedEmployees(ctx, cfg.CompanyID); err != nil {
+			log.Printf("seed employees failed (non-fatal): %v", err)
+		}
 	}
 
 	srv := api.NewServer(st, cfg, files)
-	// 考勤异常定时扫描：每 30 分钟扫最近 3 天，停机漏的会自动补齐。
-	// 关掉的方式是 OA_AUTO_SCAN=false（只能手动触发）。
+	// 启动考勤异常扫描、打卡提醒和合同到期提醒。
 	srv.AutoScanLoop()
 	log.Printf("xinbo-oa listening on :%s (company=%s, db=%s)", cfg.Port, cfg.CompanyID, cfg.MongoDB)
 	if err = srv.Router().Run(":" + cfg.Port); err != nil {

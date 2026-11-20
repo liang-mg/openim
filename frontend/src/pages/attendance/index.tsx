@@ -1,17 +1,19 @@
 import { ArrowLeftOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
-import { App as AntdApp, Button, Segmented, Spin, Tag } from "antd";
+import { App as AntdApp, Button, Segmented, Select, Spin, Tag } from "antd";
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   fileIdOf,
   getCheckinList,
   getFileLink,
   getMe,
+  getVisibleDepartments,
   type CheckinRecord,
   type CheckinRule,
   type DataScope,
+  type DepartmentOption,
   type OaIdentity,
 } from "@/api/oaApi";
 import {
@@ -37,8 +39,9 @@ const STATE_TEXT: Record<DayState, string> = {
   done: "已打卡",
   partial: "缺一次卡",
   absent: "缺卡",
+  leave: "已批准请假",
   in_progress: "上班中，未打下班卡",
-  weekend: "周末休息",
+  weekend: "休息日",
   future: "还未到",
   idle: "无记录",
 };
@@ -47,16 +50,28 @@ type ViewKey = "mine" | "team" | "report";
 
 export const Attendance = () => {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { message } = AntdApp.useApp();
 
   const todayKey = ymd(new Date());
   const curMonth = todayKey.slice(0, 7);
 
   const [me, setMe] = useState<OaIdentity | null>(null);
-  const [view, setView] = useState<ViewKey>("mine");
-  const [scope, setScope] = useState<DataScope>("team");
-  const [calMonth, setCalMonth] = useState(curMonth);
+  const requestedView = params.get("view");
+  const requestedDate = params.get("date") || undefined;
+  const requestedMonth = params.get("month") || requestedDate?.slice(0, 7);
+  const [view, setView] = useState<ViewKey>(
+    requestedView === "team" || requestedView === "report" ? requestedView : "mine",
+  );
+  const [scope, setScope] = useState<DataScope>(params.get("scope") === "all" ? "all" : "team");
+  const [departmentId, setDepartmentId] = useState<string | undefined>(params.get("department_id") || undefined);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [calMonth, setCalMonth] = useState(
+    requestedMonth && /^\d{4}-(?:0[1-9]|1[0-2])$/.test(requestedMonth) ? requestedMonth : curMonth,
+  );
   const [rule, setRule] = useState<CheckinRule | undefined>();
+  const [rulesByDate, setRulesByDate] = useState<Record<string, CheckinRule>>({});
+  const [leaveDays, setLeaveDays] = useState<Record<string, boolean>>({});
 
   // 身份决定能不能看到「团队 / 报表」两档，不在前端按角色硬编码
   useEffect(() => {
@@ -64,15 +79,35 @@ export const Attendance = () => {
       try {
         const identity = await getMe();
         setMe(identity);
-        if (identity.can_view_team) setView("team");
+        if (!identity.can_view_all) setScope("team");
+        if (!identity.can_view_team && !identity.can_view_all) setView("mine");
+        else if (!requestedView && identity.can_view_team) setView("team");
       } catch {
         // 取身份失败不影响自己看自己的出勤
       }
     })();
-  }, []);
+  }, [requestedView]);
 
-  const canViewTeam = !!me?.can_view_team;
+  const canViewTeam = !!(me?.can_view_team || me?.can_view_all);
   const canViewAll = !!me?.can_view_all;
+  const showDepartmentFilter = view !== "mine";
+
+  useEffect(() => {
+    if (!showDepartmentFilter) return;
+    let active = true;
+    void getVisibleDepartments(scope).then((rows) => {
+      if (active) setDepartments(rows);
+    }).catch(() => {
+      if (active) setDepartments([]);
+    });
+    return () => { active = false; };
+  }, [scope, showDepartmentFilter]);
+
+  const changeScope = (next: DataScope) => {
+    setDepartmentId(undefined);
+    setDepartments([]);
+    setScope(next);
+  };
 
   // 稳定引用：内联箭头函数传给子组件会让它们每次渲染都重新拉数据
   const handleError = useCallback((m: string) => message.error(m), [message]);
@@ -88,9 +123,13 @@ export const Attendance = () => {
       try {
         const res = await getCheckinList(m);
         setRecords(res.list);
+        setRulesByDate(res.rules_by_date ?? {});
+        setLeaveDays(res.approved_leave_days ?? {});
         if (res.rule) setRule(res.rule);
       } catch (e) {
         setRecords([]);
+        setRulesByDate({});
+        setLeaveDays({});
         message.error(e instanceof Error ? e.message : "出勤记录加载失败");
       } finally {
         setLoading(false);
@@ -119,8 +158,8 @@ export const Attendance = () => {
   const monthHasData = records.length > 0;
 
   const dayState = useCallback(
-    (date: string) => stateOfDay(byDate.get(date), date, todayKey, new Date(), rule),
-    [byDate, todayKey, rule],
+    (date: string) => stateOfDay(byDate.get(date), date, todayKey, new Date(), rulesByDate[date] ?? rule, leaveDays[date]),
+    [byDate, todayKey, rule, rulesByDate, leaveDays],
   );
 
   // 出勤/迟到/早退/缺卡：只算已过完的工作日，"今天还没下班"不算缺卡
@@ -135,7 +174,7 @@ export const Attendance = () => {
       if (!date) continue;
       const st = dayState(date);
       const e = byDate.get(date);
-      if (st === "weekend" || st === "future" || st === "idle") continue;
+      if (st === "leave" || st === "weekend" || st === "future" || st === "idle") continue;
       if (e?.on) {
         attend += 1;
         if (e.on.status === "late") late += 1;
@@ -180,8 +219,6 @@ export const Attendance = () => {
     { label: "出勤报表", value: "report", show: canViewTeam || canViewAll },
   ];
 
-  const showMonthNav = view !== "report";
-
   return (
     <div className={styles["att-page"]}>
       <div className={styles["att-topbar"]}>
@@ -189,8 +226,7 @@ export const Attendance = () => {
           <ArrowLeftOutlined onClick={() => navigate("/work")} />
           <span>出勤记录</span>
         </div>
-        {showMonthNav && (
-          <div className={styles["att-month-nav"]}>
+        <div className={styles["att-month-nav"]}>
             <Button
               type="text"
               size="small"
@@ -216,8 +252,7 @@ export const Attendance = () => {
             >
               回到本月
             </a>
-          </div>
-        )}
+        </div>
       </div>
 
       <div className={styles["att-subbar"]}>
@@ -227,9 +262,21 @@ export const Attendance = () => {
           onChange={(v) => setView(v as ViewKey)}
           options={tabs.filter((t) => t.show).map((t) => ({ label: t.label, value: t.value }))}
         />
-        <div className={styles["att-rule"]}>
-          工作时间 {rule?.work_on_time || "09:05"} 上班 · {rule?.work_off_time || "18:00"} 下班
-        </div>
+        {showDepartmentFilter ? (
+          <Select
+            aria-label="筛选部门"
+            placeholder="全部部门"
+            size="small"
+            allowClear
+            value={departmentId}
+            options={departments.map((department) => ({ label: department.name, value: department.department_id }))}
+            onChange={setDepartmentId}
+          />
+        ) : (
+          <div className={styles["att-rule"]}>
+            工作时间 {rule?.work_on_time || "09:05"} 上班 · {rule?.work_off_time || "18:00"} 下班
+          </div>
+        )}
       </div>
 
       <div className={styles["att-body"]}>
@@ -274,7 +321,7 @@ export const Attendance = () => {
                   </span>
                   <span>
                     <i className={styles["dot-rest"]} />
-                    周末 / 未到
+                    休息日 / 未到
                   </span>
                 </div>
               </div>
@@ -347,9 +394,11 @@ export const Attendance = () => {
             <TeamView
               month={calMonth}
               todayKey={todayKey}
+              selectedDate={requestedDate?.startsWith(calMonth) ? requestedDate : undefined}
               scope={scope}
+              departmentId={departmentId}
               canViewAll={canViewAll}
-              onScopeChange={setScope}
+              onScopeChange={changeScope}
               onRule={setRule}
               onError={handleError}
             />
@@ -359,8 +408,9 @@ export const Attendance = () => {
             <ReportView
               month={calMonth}
               scope={scope}
+              departmentId={departmentId}
               canViewAll={canViewAll}
-              onScopeChange={setScope}
+              onScopeChange={changeScope}
               onRule={setRule}
               onError={handleError}
             />

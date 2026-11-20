@@ -10,10 +10,11 @@ import { App as AntdApp, Button, Empty, Form, Input, InputNumber, Modal, Select,
 import clsx from "clsx";
 import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   getAttendanceRule,
+  getDepartments,
   getEmployeeList,
   getIMUserCandidates,
   getMe,
@@ -21,13 +22,19 @@ import {
   saveEmployee,
   setEmployeeDisabled,
   type AttendanceRule,
+  type DepartmentList,
   type EmployeeView,
   type IMUserOption,
+  type OfficeInfo,
   type OaIdentity,
   type OaRole,
 } from "@/api/oaApi";
 import { useUserStore } from "@/store";
 
+import { AnnouncementManagement } from "./AnnouncementManagement";
+import { departmentLabels, DepartmentManagement } from "./DepartmentManagement";
+import { EmployeeContractModal } from "./EmployeeContractModal";
+import { OperationAudit } from "./OperationAudit";
 import styles from "./index.module.scss";
 
 const ROLE_META: Record<string, { text: string; cls: string; hint: string }> = {
@@ -46,6 +53,7 @@ interface FormValues {
   user_id: string;
   real_name: string;
   department: string;
+  department_id?: string;
   position?: string;
   role: OaRole;
   manager_id?: string;
@@ -54,14 +62,18 @@ interface FormValues {
 
 export const OaAdmin = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const contractEmployeeId = searchParams.get("contract_employee_id");
   const { message } = AntdApp.useApp();
   const selfInfo = useUserStore((state) => state.selfInfo);
   const [form] = Form.useForm<FormValues>();
+  const selectedDepartment = Form.useWatch("department_id", form);
 
   const [me, setMe] = useState<OaIdentity | null>(null);
   const [loading, setLoading] = useState(true);
   const [list, setList] = useState<EmployeeView[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
+  const [departmentData, setDepartmentData] = useState<DepartmentList>({ list: [], unlinked: [] });
   const [keyword, setKeyword] = useState("");
   const [deptFilter, setDeptFilter] = useState<string>();
   const [roleFilter, setRoleFilter] = useState<string>();
@@ -72,6 +84,24 @@ export const OaAdmin = () => {
   const [saving, setSaving] = useState(false);
   const [imUsers, setImUsers] = useState<IMUserOption[]>([]);
   const [imLoading, setImLoading] = useState(false);
+  const canManage = Boolean(me?.can_view_all || me?.is_admin);
+  const labels = useMemo(() => departmentLabels(departmentData.list), [departmentData.list]);
+  const selectContractEmployee = (id?: string) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (id) next.set("contract_employee_id", id);
+      else next.delete("contract_employee_id");
+      return next;
+    });
+  };
+
+  const loadDepartments = useCallback(async () => {
+    try {
+      setDepartmentData(await getDepartments());
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "加载部门失败");
+    }
+  }, [message]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,8 +133,17 @@ export const OaAdmin = () => {
   }, [message]);
 
   useEffect(() => {
-    if (me) load();
-  }, [me, load]);
+    if (canManage) void load();
+    else if (me) setLoading(false);
+  }, [canManage, me, load]);
+
+  useEffect(() => {
+    if (canManage) void loadDepartments();
+  }, [canManage, loadDepartments]);
+
+  const refreshDepartmentData = async () => {
+    await Promise.all([loadDepartments(), load()]);
+  };
 
   // 可作为上级的人：组长、领导；编辑时排除自己
   const managerOptions = useMemo(() => {
@@ -139,6 +178,7 @@ export const OaAdmin = () => {
       user_id: record.user_id,
       real_name: record.real_name,
       department: record.department,
+      department_id: record.department_id,
       position: record.position,
       role: record.role,
       manager_id: record.manager_id || undefined,
@@ -169,7 +209,8 @@ export const OaAdmin = () => {
       await saveEmployee({
         user_id: values.user_id,
         real_name: values.real_name.trim(),
-        department: values.department.trim(),
+        department: (values.department || "").trim(),
+        department_id: departmentData.list.length ? values.department_id || "" : undefined,
         position: (values.position || "").trim(),
         role: values.role,
         manager_id: values.manager_id || "",
@@ -177,7 +218,7 @@ export const OaAdmin = () => {
       });
       message.success(editing ? "已保存" : "已添加，该成员现在可以打卡写日报了");
       setModalOpen(false);
-      await load();
+      await refreshDepartmentData();
     } catch (e) {
       message.error(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -207,20 +248,26 @@ export const OaAdmin = () => {
     });
   };
 
-  const canManage = !!me?.is_admin;
-
   // ---------- 考勤规则（管理员可改，改完即时生效） ----------
   const [rule, setRule] = useState<AttendanceRule | null>(null);
   const [ruleSaving, setRuleSaving] = useState(false);
+  const [ruleDepartment, setRuleDepartment] = useState("");
 
   useEffect(() => {
     if (!canManage) return;
     let alive = true;
-    void getAttendanceRule()
+    void getAttendanceRule(ruleDepartment ? { department_id: ruleDepartment } : { scope: "company" })
       .then((r) => { if (alive) setRule(r); })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        if (alive) message.error(e instanceof Error ? e.message : "读取考勤规则失败");
+      });
     return () => { alive = false; };
-  }, [canManage]);
+  }, [canManage, ruleDepartment, message]);
+
+  const office = rule?.office ?? { configured: false, name: "", address: "", lat: 0, lng: 0, radius: 200, strict: false };
+  const changeOffice = (changes: Partial<OfficeInfo>) => {
+    if (rule) setRule({ ...rule, office: { ...office, ...changes } });
+  };
 
   const doSaveRule = useCallback(async () => {
     if (!rule) return;
@@ -235,6 +282,9 @@ export const OaAdmin = () => {
         need_location: rule.need_location,
         makeup_max_days: rule.makeup_max_days,
         makeup_max_month: rule.makeup_max_month,
+        department_id: ruleDepartment || undefined,
+        workdays: rule.workdays,
+        office: rule.office,
       });
       setRule(saved);
       message.success("考勤规则已保存，之后的打卡按新规则判定");
@@ -243,7 +293,7 @@ export const OaAdmin = () => {
     } finally {
       setRuleSaving(false);
     }
-  }, [rule, message]);
+  }, [rule, ruleDepartment, message]);
 
   return (
     <div className={styles["admin-page"]}>
@@ -279,22 +329,78 @@ export const OaAdmin = () => {
                 </Button>
               </div>
 
+              <DepartmentManagement data={departmentData} onChanged={refreshDepartmentData} />
+              <OperationAudit />
+              <AnnouncementManagement departments={departmentData.list} />
+
               <div className={styles["rule-card"]}>
                 <div className={styles["rule-head"]}>
                   <div>
                     <div className={styles["rule-title"]}>考勤规则</div>
                     <div className={styles["rule-desc"]}>
-                      {rule?.source === "env"
-                        ? "当前在用默认配置（09:05 上班 / 18:00 下班），保存后以这里为准"
-                        : "保存后立即生效；已产生的打卡记录判定不回溯，历史报表数字不变"}
+                      {ruleDepartment && rule?.department_id !== ruleDepartment
+                        ? "这个部门正在使用公司规则，保存后会使用部门规则。"
+                        : "保存后立即生效，已打卡记录保留当时的规则。"}
                     </div>
                   </div>
-                  <Button size="small" type="primary" loading={ruleSaving} onClick={() => void doSaveRule()}>
+                  <Select
+                    aria-label="考勤规则适用范围"
+                    size="small"
+                    value={ruleDepartment}
+                    disabled={ruleSaving}
+                    options={[
+                      { label: "公司规则", value: "" },
+                      ...departmentData.list.map((dept) => ({ label: labels.get(dept.department_id) || dept.name, value: dept.department_id })),
+                    ]}
+                    onChange={(id: string) => {
+                      setRule(null);
+                      setRuleDepartment(id);
+                    }}
+                  />
+                  <Button size="small" type="primary" disabled={!rule} loading={ruleSaving} onClick={() => void doSaveRule()}>
                     保存规则
                   </Button>
                 </div>
                 {rule && (
                   <div className={styles["rule-grid"]}>
+                    <label>
+                      <span>工作日</span>
+                      <Select
+                        mode="multiple"
+                        size="small"
+                        value={rule.workdays ?? [1, 2, 3, 4, 5]}
+                        options={["日", "一", "二", "三", "四", "五", "六"].map((day, index) => ({ label: `周${day}`, value: index }))}
+                        onChange={(workdays: number[]) => setRule({ ...rule, workdays })}
+                      />
+                    </label>
+                    <label className={styles["rule-switch"]}>
+                      <span>启用围栏</span>
+                      <Switch size="small" checked={office.configured} onChange={(configured) => changeOffice({ configured })} />
+                    </label>
+                    {office.configured && (
+                      <>
+                        <label>
+                          <span>打卡点名称</span>
+                          <Input size="small" value={office.name} onChange={(e) => changeOffice({ name: e.target.value })} />
+                        </label>
+                        <label>
+                          <span>打卡点纬度</span>
+                          <InputNumber size="small" min={-90} max={90} value={office.lat} onChange={(lat) => changeOffice({ lat: Number(lat) })} />
+                        </label>
+                        <label>
+                          <span>打卡点经度</span>
+                          <InputNumber size="small" min={-180} max={180} value={office.lng} onChange={(lng) => changeOffice({ lng: Number(lng) })} />
+                        </label>
+                        <label>
+                          <span>范围半径（米）</span>
+                          <InputNumber size="small" min={1} precision={0} value={office.radius} onChange={(radius) => changeOffice({ radius: Number(radius) })} />
+                        </label>
+                        <label className={styles["rule-switch"]}>
+                          <span>拒绝范围外打卡</span>
+                          <Switch size="small" checked={office.strict} onChange={(strict) => changeOffice({ strict })} />
+                        </label>
+                      </>
+                    )}
                     <label>
                       <span>上班时间</span>
                       <TimePicker
@@ -438,7 +544,7 @@ export const OaAdmin = () => {
                             <div className={styles["member-phone"]}>{e.phone_number || e.user_id}</div>
                           </div>
                         </div>
-                        <span className={styles.cell}>{e.department}</span>
+                        <span className={styles.cell}>{labels.get(e.department_id || "") || e.department}</span>
                         <span className={styles.cell}>{e.position || "—"}</span>
                         <span className={styles["cell-role"]}>
                           <span className={clsx(styles["role-tag"], styles[roleMeta.cls])}>
@@ -449,6 +555,9 @@ export const OaAdmin = () => {
                         <span className={styles["col-actions"]}>
                           <button className={styles["link-btn"]} onClick={() => openEdit(e)}>
                             编辑
+                          </button>
+                          <button className={styles["link-btn"]} onClick={() => selectContractEmployee(e.user_id)}>
+                            合同
                           </button>
                           <button
                             className={clsx(styles["link-btn"], styles["danger-btn"])}
@@ -528,15 +637,27 @@ export const OaAdmin = () => {
             >
               <Input placeholder="如：李然" maxLength={20} />
             </Form.Item>
-            <Form.Item
-              label="部门"
-              name="department"
-              rules={[{ required: true, message: "请填部门" }]}
-              className={styles["form-col"]}
-            >
-              <Input placeholder="如：技术部" maxLength={20} list="oa-dept-list" />
-            </Form.Item>
+            {departmentData.list.length > 0 && (
+              <Form.Item label="所属部门" name="department_id" className={styles["form-col"]}>
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="选择部门"
+                  options={departmentData.list.map((department) => ({
+                    value: department.department_id,
+                    label: labels.get(department.department_id),
+                  }))}
+                />
+              </Form.Item>
+            )}
           </div>
+
+          {!selectedDepartment && (
+            <Form.Item label="旧部门名称" name="department" rules={[{ required: true, whitespace: true, message: "请填部门" }]}>
+              <Input placeholder="如：技术部" maxLength={60} list="oa-dept-list" />
+            </Form.Item>
+          )}
 
           <Form.Item label="岗位" name="position">
             <Input placeholder="如：前端工程师（可不填）" maxLength={30} />
@@ -558,7 +679,7 @@ export const OaAdmin = () => {
           <Form.Item
             label="直属上级"
             name="manager_id"
-            extra="选领导即为顶层；留空也是顶层（例如公司负责人）"
+            extra="请假和补卡优先由直属上级审批，直属上级缺位时由部门负责人审批"
           >
             <Select
               allowClear
@@ -585,6 +706,14 @@ export const OaAdmin = () => {
           <option key={d} value={d} />
         ))}
       </datalist>
+      {canManage && contractEmployeeId && (
+        <EmployeeContractModal
+          key={contractEmployeeId}
+          employeeId={contractEmployeeId}
+          employeeName={list.find((employee) => employee.user_id === contractEmployeeId)?.real_name || contractEmployeeId}
+          onClose={() => selectContractEmployee()}
+        />
+      )}
     </div>
   );
 };
