@@ -80,11 +80,11 @@ test: 补团队出勤回归
 
 ## 六、常见坑
 
-- Go 构建漏 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` → 容器 Restarting 且无日志。
+- Go 编译已内置到 `backend/Dockerfile` 多阶段构建，本地无需安装 Go。
 - MinIO 桶名必须 ≥3 字符（`oa` 会报错），本项目用 `xinbo-oa`。
 - nginx `proxy_pass` 带尾斜杠会剥掉 `/oa` 前缀 → 生产 404，必须不带斜杠并 reload。
 - 前端 `onError` 内联回调会导致 `useEffect` 无限请求 → 用 `useRef` + `useCallback` + `reqId`。
 - flex 布局裁切 → 子项要加 `min-height:0`。
 - 一键脚本必须在**官方底座同级目录**执行（本仓库是它的子目录），否则 compose 找不到官方文件；可用 `OA_COMPOSE` 显式指定。
 - 生成的 `.env` 若改了 chat 配置里的 secret，必须同步改 `XINBO_OA_TOKEN_SECRET`，否则登录态校验失败、接口全部 401。
-- Windows 上 Go 交叉编译必须带 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`；GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`。
+- GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`，`deploy.sh build` 会透传给镜像构建。

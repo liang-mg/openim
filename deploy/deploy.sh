@@ -2,11 +2,11 @@
 # ============================================================================
 # OA 二开环境一键部署脚本
 #
-#   deploy.sh bootstrap   # 首次全流程：预检 -> 密钥 -> 编译 -> 启动 -> 验收
+#   deploy.sh bootstrap   # 首次全流程：预检 -> 密钥 -> 镜像内编译+构建 -> 启动 -> 验收
 #   deploy.sh up          # 启动/重建 OA 服务
 #   deploy.sh down        # 停止 OA 服务（不动官方底座）
 #   deploy.sh restart     # 重启 OA 服务
-#   deploy.sh build       # 只编译后端二进制 + 构建镜像
+#   deploy.sh build       # 重建镜像（Go 编译在 Dockerfile 内完成）
 #   deploy.sh status      # 查看容器与端口状态
 #   deploy.sh logs        # 跟踪 OA 服务日志
 #   deploy.sh verify      # 健康检查 + 接口冒烟
@@ -54,11 +54,11 @@ preflight() {
   step "环境预检"
   command -v docker >/dev/null 2>&1 || fail "缺少 docker，请先安装 Docker / Docker Desktop。"
   docker info >/dev/null 2>&1 || fail "Docker 未运行，请先启动 Docker。"
-  command -v go >/dev/null 2>&1 || fail "缺少 Go（编译后端需要），请安装 Go 1.21+。"
+  # Go 编译已内置到 Dockerfile 多阶段构建，宿主机无需安装 Go
   [ -f "$COMPOSE_OA" ] || fail "缺少 $COMPOSE_OA，检查仓库是否完整。"
   [ -f "$ENV_TEMPLATE" ] || fail "缺少配置模板 $ENV_TEMPLATE。"
   [ -f "$(detect_compose)" ] || fail "官方底座 compose 不存在。"
-  ok "docker / go / compose / 模板 均就绪"
+  ok "docker / compose / 模板 均就绪（Go 编译在镜像内完成，无需本地安装）"
   ok "官方底座: $ROOT"
   ok "OA 仓库:   $OA_DIR"
 }
@@ -100,31 +100,18 @@ prepare_env() {
   fi
 }
 
-# 编译后端二进制（Windows 上交叉编译为 linux/amd64）
-build_backend() {
-  step "编译 OA 后端（CGO_ENABLED=0 linux/amd64）"
-  local bin_dir="$OA_DIR/backend/bin"
-  mkdir -p "$bin_dir"
-  (
-    cd "$OA_DIR/backend"
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-      GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
-      go build -o bin/oa-api ./cmd/oa-api
-  ) || fail "Go 编译失败，检查 $OA_DIR/backend 源码与网络（GOPROXY）。"
-  ok "二进制已生成: $bin_dir/oa-api"
-}
-
-# 构建镜像
+# 构建镜像（Dockerfile 多阶段构建会在镜像内完成 Go 编译，无需本地 Go）
 build_image() {
-  step "构建 xinbo-oa:local 镜像"
-  docker build -t xinbo-oa:local "$OA_DIR/backend" >/dev/null \
-    || fail "镜像构建失败。"
+  step "构建 xinbo-oa:local 镜像（镜像内编译 Go 后端）"
+  docker build \
+    --build-arg "GOPROXY=${GOPROXY:-https://goproxy.cn,direct}" \
+    -t xinbo-oa:local "$OA_DIR/backend" >/dev/null \
+    || fail "镜像构建失败（Go 编译在镜像内进行，检查网络/GOPROXY）。"
   ok "镜像 xinbo-oa:local 已就绪"
 }
 
 do_build() {
   preflight
-  build_backend
   build_image
 }
 
@@ -132,7 +119,6 @@ do_bootstrap() {
   step "OA 环境一键部署（首次全流程）"
   preflight
   prepare_env
-  build_backend
   build_image
 
   step "启动依赖底座（mongo / minio）"

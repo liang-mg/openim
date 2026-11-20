@@ -7,12 +7,14 @@
 
 ## 前置（只装一次）
 
-| 软件 | 用途 |
-|---|---|
-| Docker + Docker Compose | 跑 mongo / minio / OA 服务 |
-| Go 1.21+ | 编译 OA 后端（只需编译一次） |
-| Git | clone 仓库 |
-| Node 18+ / pnpm | 跑前端（本地开发） |
+| 软件 | 用途 | 是否必须 |
+|---|---|---|
+| Docker + Docker Compose | 跑 mongo / minio / OA 服务，**Go 后端也在镜像内编译** | ✅ 必须 |
+| Git | clone 仓库（也可直接下载 zip 解压，非必需） | 推荐 |
+| Node 18+ / pnpm | 仅本地开发前端时需要；只跑后端或用现成静态包不需要 | 可选 |
+
+> 后端部署**不用在本地装 Go**：`backend/Dockerfile` 是多阶段构建，编译在镜像里完成。
+> 如果只想验证后端接口，装 Docker 一个软件就够了，第 3 步前端可以跳过。
 
 ---
 
@@ -34,9 +36,9 @@ cd /work/openim-docker/oa-custom/deploy
 bash deploy.sh bootstrap
 ```
 
-脚本自动完成：预检 → 生成 `.env` 和随机密钥 → 编译后端 → 构建镜像 → 启动 mongo/minio + OA → 健康检查。看到 `OA 环境已就绪` 即成功。
+脚本自动完成：预检 → 生成 `.env` 和随机密钥 → 构建镜像（镜像内编译 Go 后端）→ 启动 mongo/minio + OA → 健康检查。看到 `OA 环境已就绪` 即成功。
 
-### 第 3 步：启动前端
+### 第 3 步：启动前端（可选，本地开发才需要）
 
 ```bash
 cd /work/openim-docker
@@ -107,17 +109,16 @@ cp oa-custom/config-template/frontend.env.local.example <openim-electron-demo>/.
 
 **安全红线**：真实 `.env` / `.env.local` 绝不提交 Git。
 
-### 4. 编译并启动 OA 后端
+### 4. 构建并启动 OA 后端（无需本地 Go）
 
 ```bash
-cd oa-custom/backend
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/oa-api ./cmd/oa-api
-cd ../deploy
+cd oa-custom/deploy
+bash deploy.sh build     # Dockerfile 多阶段构建，镜像内编译 Go 后端
 bash deploy.sh up
 curl http://127.0.0.1:10010/oa/api/v1/healthz
 ```
 
-漏 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` → 容器 Restarting 且无日志。
+早期版本要本地 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build`，漏了会容器 Restarting；现在编译已内置到 `backend/Dockerfile`，不会再踩这个坑。GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`（`deploy.sh build` 会透传为 `--build-arg`）。
 
 ### 5. 启动前端
 
