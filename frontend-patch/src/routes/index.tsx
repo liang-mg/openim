@@ -79,6 +79,14 @@ const router = createHashRouter([
             },
           },
           {
+            // 审批中心：请假/补卡/考勤异常/日报点评 四类待办一处处理
+            path: "approvals",
+            async lazy() {
+              const { Approvals } = await import("@/pages/approvals");
+              return { Component: Approvals };
+            },
+          },
+          {
             path: "report-review",
             async lazy() {
               const { ReportReview } = await import("@/pages/report-review");

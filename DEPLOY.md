@@ -68,6 +68,18 @@ bash deploy.sh build           # 改代码后重新构建两个镜像
 
 ---
 
+## 功能开关（`.env` 里改，重启生效）
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `XINBO_OA_WORK_ON_TIME` / `XINBO_OA_WORK_OFF_TIME` | `09:05` / `18:00` | 首次启动的作息默认值。管理员在「员工与权限 → 考勤规则」保存过之后以页面为准 |
+| `XINBO_OA_MAKEUP_MAX_DAYS` / `XINBO_OA_MAKEUP_MAX_MONTH` | `7` / `3` | 补卡可补天数、每月上限（同上，规则页可改） |
+| `XINBO_OA_AUTO_SCAN` | `true` | 考勤异常自动扫描（启动后每 30 分钟扫最近 3 天）。设 `false` 只能手动触发 |
+| `XINBO_OA_IM_PUSH_URL` | 空 | 通知推到 IM 的 webhook。留空只发站内信，接口会返回 `pushed=false` |
+| `XINBO_OA_IM_PUSH_TOKEN` | 空 | 上面 webhook 的 Bearer token（可选） |
+
+---
+
 ## 生产环境（上线前必看）
 
 1. **不要用脚本生成的随机密钥**：手动设置强密码，`XINBO_OA_TOKEN_SECRET` 必须与 chat 的 `config/chat-rpc-admin.yml` 里 secret 一致，否则登录态全部 401。
@@ -120,6 +132,8 @@ export MONGO_PASSWORD=<和 .env 里 MONGO_PASSWORD 一致>
 node scripts/oa_e2e_check.js
 node scripts/oa_team_attendance_check.js
 node scripts/oa_leave_makeup_api_check.js
+node scripts/oa_exception_check.js     # 考勤异常 + 规则配置
+node scripts/oa_approval_check.js      # 审批中心 + 催交 + 通知
 ```
 
 UI 脚本需 `playwright-core`（`pnpm add -D playwright-core`），可设 `CHROME_PATH` 指定浏览器。完整脚本和账号见 `docs/OA测试账号与权限说明.md`。

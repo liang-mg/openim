@@ -1,0 +1,234 @@
+/* 审批中心：四类待办收成一个入口。骨架与请假页一致（蓝顶栏 + 灰底内容） */
+
+.ap-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-layout, #f4f6fa);
+  display: flex;
+  flex-direction: column;
+}
+
+.ap-topbar {
+  flex: 0 0 auto;
+  height: 56px;
+  min-height: 56px;
+  background: #0b5fd8;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  gap: 16px;
+}
+
+.ap-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 17px;
+  font-weight: 600;
+
+  span:first-of-type {
+    cursor: pointer;
+  }
+}
+
+.ap-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  button {
+    border-radius: 6px;
+  }
+}
+
+.ap-subbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  background: #fff;
+  border-bottom: 1px solid #eef1f6;
+}
+
+/* 视图切换：选中蓝底白字，避免白底叠白底看不出高亮 */
+.ap-segmented {
+  :global(.ant-segmented) {
+    background: #eef2f8;
+    padding: 3px;
+    border-radius: 9px;
+  }
+
+  :global(.ant-segmented-item) {
+    color: #4a5a75;
+    font-weight: 500;
+    border-radius: 7px;
+  }
+
+  :global(.ant-segmented-item-label) {
+    padding: 0 14px;
+  }
+
+  :global(.ant-segmented-item:not(.ant-segmented-item-selected):hover) {
+    color: #0b5fd8;
+    background: rgba(0, 137, 255, 0.1);
+  }
+
+  :global(.ant-segmented-item.ant-segmented-item-selected) {
+    background: #0b5fd8 !important;
+    color: #fff !important;
+    box-shadow: 0 2px 6px rgba(11, 95, 216, 0.26);
+  }
+
+  :global(.ant-segmented-thumb) {
+    background: #0b5fd8;
+    border-radius: 7px;
+  }
+}
+
+.ap-hint {
+  font-size: 12px;
+  color: #8a96ab;
+  text-align: right;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-body {
+  flex: 1 1 auto;
+  /* 关键：不加 min-height 时 flex 子项会被内容撑破，最后一行被裁掉 */
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+}
+
+.ap-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.ap-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 9px 14px 6px;
+}
+
+.ap-table {
+  :global(.ant-table-thead > tr > th) {
+    background: #f7f9fc;
+    font-weight: 600;
+    color: #4a5a75;
+  }
+
+  :global(.ant-table-cell) {
+    font-size: 13px;
+    color: #1f2d45;
+  }
+}
+
+.ap-user {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+
+  span {
+    color: #12233f;
+    font-weight: 500;
+  }
+
+  em {
+    font-style: normal;
+    font-size: 12px;
+    color: #8a96ab;
+  }
+}
+
+.ap-content {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.5;
+  min-width: 0;
+
+  span {
+    color: #12233f;
+  }
+
+  em {
+    font-style: normal;
+    font-size: 12px;
+    color: #6b7a93;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.ap-op {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  a {
+    font-size: 12px;
+    color: #0089ff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+}
+
+.cell-mono {
+  font-variant-numeric: tabular-nums;
+  color: #5b6a83;
+}
+
+.ap-muted {
+  color: #a8b3c4;
+}
+
+.ap-rate-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 4px 14px;
+}
+
+.ap-rate-total {
+  font-size: 13px;
+  color: #4a5a75;
+
+  b {
+    color: #0b5fd8;
+  }
+}
+
+.approval-tip {
+  font-size: 13px;
+  color: #6b7a93;
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+
+@media only screen and (max-width: 900px) {
+  .ap-subbar {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+  }
+
+  .ap-hint {
+    display: none;
+  }
+
+  .ap-body {
+    padding: 14px 12px 32px;
+  }
+}

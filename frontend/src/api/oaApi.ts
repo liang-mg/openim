@@ -696,6 +696,200 @@ export async function getAttendancePending(scope?: DataScope): Promise<Attendanc
   return get<AttendancePending>("/attendance/pending", scope ? { scope } : undefined);
 }
 
+// ===================== 考勤规则 =====================
+
+export interface AttendanceRule {
+  work_on_time: string;
+  work_off_time: string;
+  late_grace: number;
+  earliest_on: string;
+  need_photo: boolean;
+  need_location: boolean;
+  makeup_max_days: number;
+  makeup_max_month: number;
+  updated_by?: string;
+  updated_at?: number;
+  /** db = 已保存过自定义规则；env = 还在用环境变量默认值 */
+  source: "db" | "env";
+}
+
+export async function getAttendanceRule(): Promise<AttendanceRule> {
+  return get<AttendanceRule>("/attendance/rule");
+}
+
+export async function saveAttendanceRule(rule: Omit<AttendanceRule, "source" | "updated_at">) {
+  return post<AttendanceRule>("/attendance/rule", rule);
+}
+
+// ===================== 考勤异常 =====================
+
+export type ExceptionKind =
+  | "absent" | "missing_on" | "missing_off" | "late" | "early" | "outside_fence";
+export type ExceptionStatus = "open" | "appealed" | "resolved" | "ignored";
+
+export interface CheckinException {
+  exception_id: string;
+  user_id: string;
+  user_name: string;
+  department: string;
+  date: string;
+  kind: ExceptionKind;
+  kind_text: string;
+  status: ExceptionStatus;
+  note: string;
+  checkin_id?: string;
+  handler_id?: string;
+  handler_name?: string;
+  handled_at?: number;
+  comment?: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ExceptionSummary {
+  open: number;
+  appealed: number;
+  resolved: number;
+  ignored: number;
+  total: number;
+}
+
+export interface ExceptionListResult {
+  scope: DataScope;
+  month: string;
+  summary: ExceptionSummary;
+  total: number;
+  list: CheckinException[];
+}
+
+export const EXCEPTION_STATUS_TEXT: Record<ExceptionStatus, string> = {
+  open: "待处理", appealed: "已申诉", resolved: "已认定", ignored: "已忽略",
+};
+
+export async function getExceptionList(params?: {
+  scope?: DataScope; month?: string; status?: string; kind?: ExceptionKind;
+}): Promise<ExceptionListResult> {
+  const q: Record<string, string> = {};
+  if (params?.scope) q.scope = params.scope;
+  if (params?.month) q.month = params.month;
+  if (params?.status) q.status = params.status;
+  if (params?.kind) q.kind = params.kind;
+  return get<ExceptionListResult>("/checkin/exception/list", q);
+}
+
+export async function handleException(
+  exceptionId: string, action: "resolve" | "ignore", comment: string,
+): Promise<{ status: ExceptionStatus }> {
+  return post("/checkin/exception/handle", { exception_id: exceptionId, action, comment });
+}
+
+export async function appealException(exceptionId: string, note: string) {
+  return post<{ status: ExceptionStatus }>("/checkin/exception/appeal", {
+    exception_id: exceptionId, note,
+  });
+}
+
+export async function scanExceptions(days = 3): Promise<{
+  from: string; to: string; scanned: number; created: number; skipped: number;
+}> {
+  return post(`/checkin/exception/scan?days=${days}`) as Promise<{
+    from: string; to: string; scanned: number; created: number; skipped: number;
+  }>;
+}
+
+// ===================== 审批中心 =====================
+
+export type ApprovalKind = "leave" | "makeup" | "exception" | "report";
+export type ApprovalTab = "pending" | "mine" | "done";
+
+export interface ApprovalItem {
+  kind: ApprovalKind;
+  kind_text: string;
+  id: string;
+  user_id: string;
+  user_name: string;
+  department: string;
+  title: string;
+  subtitle: string;
+  status: string;
+  time: number;
+  can_approve: boolean;
+  path: string;
+}
+
+export interface ApprovalListResult {
+  tab: ApprovalTab;
+  total: number;
+  list: ApprovalItem[];
+  pending: number;
+}
+
+export async function getApprovalList(params?: {
+  tab?: ApprovalTab; kind?: ApprovalKind;
+}): Promise<ApprovalListResult> {
+  const q: Record<string, string> = {};
+  if (params?.tab) q.tab = params.tab;
+  if (params?.kind) q.kind = params.kind;
+  return get<ApprovalListResult>("/approvals/list", q);
+}
+
+export interface SubmitRateRow {
+  department: string;
+  total: number;
+  submitted: number;
+  rate: number;
+  missing: string[];
+}
+
+export interface SubmitRateResult {
+  date: string;
+  scope: DataScope;
+  total: number;
+  done: number;
+  rate: number;
+  rows: SubmitRateRow[];
+}
+
+export async function getSubmitRate(params?: {
+  date?: string; scope?: DataScope;
+}): Promise<SubmitRateResult> {
+  const q: Record<string, string> = {};
+  if (params?.date) q.date = params.date;
+  if (params?.scope) q.scope = params.scope;
+  return get<SubmitRateResult>("/report/submit-rate", q);
+}
+
+export async function urgeReports(date: string): Promise<{
+  urged: number; skipped: number; pushed: boolean;
+}> {
+  return post("/report/urge", { date }) as Promise<{
+    urged: number; skipped: number; pushed: boolean;
+  }>;
+}
+
+// ===================== 通知 =====================
+
+export interface OaNotification {
+  notification_id: string;
+  user_id: string;
+  kind: string;
+  title: string;
+  content: string;
+  path: string;
+  read: boolean;
+  created_at: number;
+}
+
+export async function getNotifications(all = false): Promise<{
+  total: number; unread: number; list: OaNotification[]; push_enabled: boolean;
+}> {
+  return get("/notifications/list", all ? { all: 1 } : undefined);
+}
+
+export async function readNotifications(id?: string): Promise<{ updated: number }> {
+  return post("/notifications/read", id ? { notification_id: id } : { all: true });
+}
+
 // ===================== 工具 =====================
 
 export function reportTypeText(type: ReportType) {

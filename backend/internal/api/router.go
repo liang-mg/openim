@@ -1,11 +1,15 @@
 package api
 
 import (
+	"sync"
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/xinbo/xinbo-oa/internal/auth"
 	"github.com/xinbo/xinbo-oa/internal/config"
 	"github.com/xinbo/xinbo-oa/internal/filestore"
+	"github.com/xinbo/xinbo-oa/internal/model"
 	"github.com/xinbo/xinbo-oa/internal/store"
 )
 
@@ -13,6 +17,12 @@ type Server struct {
 	Store *store.Store
 	Cfg   *config.Config
 	Files *filestore.Store
+
+	// 考勤规则缓存：规则读得非常频繁（每次打卡判定、每张报表），
+	// 但改动极少，所以缓存一分钟，保存规则时主动失效。
+	ruleMu    sync.RWMutex
+	ruleCache *model.AttendanceRule
+	ruleAt    time.Time
 }
 
 func NewServer(st *store.Store, cfg *config.Config, files *filestore.Store) *Server {
@@ -63,6 +73,25 @@ func (s *Server) Router() *gin.Engine {
 		g.POST("/makeup/approve", s.MakeupApprove)
 		g.POST("/makeup/cancel", s.MakeupCancel)
 		g.GET("/attendance/pending", s.AttendancePending)
+
+		// 考勤规则配置（读：所有登录用户；写：管理员，接口内部再校验一次）
+		g.GET("/attendance/rule", s.GetRule)
+		g.POST("/attendance/rule", s.SaveRule)
+
+		// 考勤异常：扫描产出、列表查看、本人申诉、组长处理
+		g.POST("/checkin/exception/scan", s.ScanExceptions)
+		g.GET("/checkin/exception/list", s.ExceptionList)
+		g.POST("/checkin/exception/handle", s.ExceptionHandle)
+		g.POST("/checkin/exception/appeal", s.ExceptionAppeal)
+
+		// 审批中心：四类待办聚合到一个入口（不落新表，避免与源表不一致）
+		g.GET("/approvals/list", s.ApprovalList)
+		g.GET("/report/submit-rate", s.SubmitRate)
+		g.POST("/report/urge", s.UrgeReports)
+
+		// 站内通知（IM 推送是同一条记录的附加送达方式）
+		g.GET("/notifications/list", s.NotificationList)
+		g.POST("/notifications/read", s.NotificationRead)
 
 		g.GET("/report/overview", s.ReportOverview)
 		g.POST("/report/submit", s.SubmitReport)

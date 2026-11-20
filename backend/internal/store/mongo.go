@@ -35,6 +35,11 @@ func (s *Store) Employees() *mongo.Collection { return s.DB.Collection("oa_emplo
 func (s *Store) Files() *mongo.Collection     { return s.DB.Collection("oa_file") }
 func (s *Store) Leaves() *mongo.Collection    { return s.DB.Collection("oa_leave") }
 func (s *Store) Makeups() *mongo.Collection   { return s.DB.Collection("oa_makeup") }
+func (s *Store) Exceptions() *mongo.Collection {
+	return s.DB.Collection("oa_checkin_exception")
+}
+func (s *Store) Rules() *mongo.Collection        { return s.DB.Collection("oa_attendance_rule") }
+func (s *Store) Notifications() *mongo.Collection { return s.DB.Collection("oa_notification") }
 
 // 以下两个是 IM 的核心集合，只读引用（不写入）。
 // 员工管理页挑人时直接读 IM 已注册账号，避免在 OA 里重复建一套账号体系。
@@ -96,6 +101,32 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	if _, err = s.Makeups().Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "company_id", Value: 1}, {Key: "user_id", Value: 1}, {Key: "date", Value: 1}, {Key: "type", Value: 1}, {Key: "status", Value: 1}},
 		Options: options.Index().SetUnique(true),
+	}); err != nil {
+		return err
+	}
+	// 考勤异常：同一人同一天同一类型只有一条，扫描重复跑靠它做幂等
+	if _, err = s.Exceptions().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "company_id", Value: 1}, {Key: "user_id", Value: 1}, {Key: "date", Value: 1}, {Key: "kind", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}); err != nil {
+		return err
+	}
+	// 按状态 + 月份查待处理（工作台、审批中心、异常列表都走这个顺序）
+	if _, err = s.Exceptions().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "company_id", Value: 1}, {Key: "status", Value: 1}, {Key: "date", Value: -1}},
+	}); err != nil {
+		return err
+	}
+	// 考勤规则：一家公司一条
+	if _, err = s.Rules().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "company_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}); err != nil {
+		return err
+	}
+	// 通知：按人查未读、按人查列表
+	if _, err = s.Notifications().Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "company_id", Value: 1}, {Key: "user_id", Value: 1}, {Key: "read", Value: 1}, {Key: "created_at", Value: -1}},
 	}); err != nil {
 		return err
 	}

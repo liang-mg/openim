@@ -39,16 +39,17 @@ func deviceText(model, ua string) string {
 	return model + " | " + ua
 }
 
-// todayRule 当前生效的作息规则。时间全部来自配置（默认 09:05 / 18:00），
-// 判定与展示共用同一份，避免"页面写 9:00、后端按 9:30 算"这类不一致。
+// todayRule 当前生效的作息规则。时间来自「考勤规则配置」（库里一套 + 环境变量兜底），
+// 打卡判定、团队表、报表、异常扫描共用这一份，避免"页面写 9:00、后端按 9:30 算"。
 func (s *Server) todayRule() model.CheckinRule {
+	r := s.currentRule()
 	return model.CheckinRule{
-		WorkOnTime:   s.Cfg.WorkOnTime,
-		WorkOffTime:  s.Cfg.WorkOffTime,
-		LateGrace:    s.Cfg.LateGraceMin,
-		EarliestOn:   s.Cfg.EarliestOn,
-		NeedPhoto:    true,
-		NeedLocation: true,
+		WorkOnTime:   r.WorkOnTime,
+		WorkOffTime:  r.WorkOffTime,
+		LateGrace:    r.LateGrace,
+		EarliestOn:   r.EarliestOn,
+		NeedPhoto:    r.NeedPhoto,
+		NeedLocation: r.NeedLocation,
 	}
 }
 

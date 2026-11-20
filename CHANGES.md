@@ -14,6 +14,7 @@
 | `src/pages/checkin/` | 拍照打卡页（真实 GPS + 服务端判位 + 照片水印上传） |
 | `src/pages/attendance/` | 出勤记录页（我的/团队/报表/全公司四档 + 月历 + CSV 导出） |
 | `src/pages/leave/` | 请假补卡页（我的申请/待我审批/已处理） |
+| `src/pages/approvals/` | 审批中心（待我处理/我发起的/已处理/日报提交 + 催交 + 异常申诉） |
 | `src/pages/report/` | 工作报告页（日报化：提交、附件、2h 撤回、补写） |
 | `src/pages/report-review/` | 领导查阅页（待查阅/已归档、两级点评） |
 | `src/pages/oa-admin/` | 员工与权限管理页（管理员） |

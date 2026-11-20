@@ -48,8 +48,17 @@ type Config struct {
 	EarliestOn string
 
 	// 补卡：只补过去 N 天，每月最多 M 次（0 表示不限）。
+	// 这两个值是"库里还没配过考勤规则"时的初始兜底，管理员改规则后以库里的为准。
 	MakeupMaxDays  int
 	MakeupMaxMonth int
+
+	// IM 推送：审批待办、催交这类通知除了落站内信，还可以推到 IM。
+	// 不配置就只落站内信（接口返回 pushed=false），不做"看着像推了其实没推"的假实现。
+	// 约定：POST JSON {recv_id,title,content,path} 到 IMPushURL，可选带 Bearer token。
+	IMPushURL   string
+	IMPushToken string
+	// AutoScan 是否开启每日考勤异常自动扫描（默认开）。关掉后只能手动触发。
+	AutoScan bool
 }
 
 func Load() *Config {
@@ -88,6 +97,11 @@ func Load() *Config {
 		// 补卡默认：只补过去 7 天，每月最多 3 次（排期里你拍板的默认值）
 		MakeupMaxDays:  int(envInt("OA_MAKEUP_MAX_DAYS", 7)),
 		MakeupMaxMonth: int(envInt("OA_MAKEUP_MAX_MONTH", 3)),
+
+		// IM 推送与自动扫描：不配推送地址就只落站内信；扫描默认开
+		IMPushURL:   env("OA_IM_PUSH_URL", ""),
+		IMPushToken: env("OA_IM_PUSH_TOKEN", ""),
+		AutoScan:    env("OA_AUTO_SCAN", "true") != "false",
 	}
 }
 

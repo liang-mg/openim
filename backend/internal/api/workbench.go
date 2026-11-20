@@ -112,11 +112,9 @@ func (s *Server) WorkbenchSummary(c *gin.Context) {
 
 	// ---------- 待办 ----------
 	me := s.getEmployee(ctx, uid)
-	role := "employee"
 	isAdmin := false
 	disabled := false
 	if me != nil {
-		role = me.Role
 		isAdmin = me.IsAdmin
 		disabled = me.Disabled
 	}
@@ -134,46 +132,35 @@ func (s *Server) WorkbenchSummary(c *gin.Context) {
 			})
 		}
 
-		// 2. 组长：待我点评的日报
-		if role == "manager" || (isAdmin && role != "leader") {
-			if n := s.pendingCount(ctx, s.subordinateIDs(ctx, uid), "submitted"); n > 0 {
-				todos = append(todos, workbenchTodo{
-					Key: "review", Dot: "#F0A020", Text: itoa(n) + " 条日报待你点评",
-					Action: "去点评", Path: "/report-review",
-				})
-			}
-		}
-
-		// 3. 领导：组员已上报、待我审阅的日报
-		if role == "leader" || isAdmin {
-			if n := s.pendingCount(ctx, s.teamIDs(ctx, uid), "pending_leader"); n > 0 {
-				todos = append(todos, workbenchTodo{
-					Key: "review", Dot: "#E34D59", Text: itoa(n) + " 条日报待你审阅",
-					Action: "去审阅", Path: "/report-review",
-				})
-			}
-		}
-
-		// 4. 请假/补卡待审批：按汇报链算（复用统一口径），组长/领导看到真实条数
+		// 2. 审批待办：日报点评/审阅、请假、补卡、考勤异常，全部来自同一个聚合函数。
+		//    以前这里自己 count、审批中心自己查，出现过"显示 2 条点进去 0 条"，
+		//    现在两处共用 approvalItems，数字永远等于列表长度。
 		if s.canUseScope(ctx, uid, ScopeTeam) {
-			ids := s.visibleUserIDs(ctx, uid, ScopeTeam)
-			// 组长只看直属，领导看整条链——与审批接口的可见范围一致
-			if role != "leader" && !isAdmin && len(ids) > 0 {
-				direct := s.subordinateIDs(ctx, uid)
-				ids = direct
+			if items, e := s.approvalItems(ctx, uid, TabPending, ""); e == nil && len(items) > 0 {
+				todos = append(todos, workbenchTodo{
+					Key: "approval", Dot: "#F0A020",
+					Text:   itoa(len(items)) + " 条审批待你处理",
+					Action: "去处理", Path: "/approvals",
+				})
 			}
-			if len(ids) > 0 {
-				flt := bson.M{"company_id": s.Cfg.CompanyID, "status": "pending", "user_id": bson.M{"$in": ids}}
-				lvN, e1 := s.Store.Leaves().CountDocuments(ctx, flt)
-				mkN, e2 := s.Store.Makeups().CountDocuments(ctx, flt)
-				if e1 == nil && e2 == nil && lvN+mkN > 0 {
-					todos = append(todos, workbenchTodo{
-						Key: "leave", Dot: "#F0A020",
-						Text:   itoa(int(lvN+mkN)) + " 条请假/补卡待审批",
-						Action: "去处理", Path: "/leave",
-					})
-				}
-			}
+		}
+
+		// 3. 我自己的考勤异常（还没申诉、也没被处理的）
+		if n := s.openExceptionCount(ctx, []string{uid}); n > 0 {
+			todos = append(todos, workbenchTodo{
+				Key: "exception", Dot: "#E34D59",
+				Text:   itoa(n) + " 条考勤异常待处理",
+				Action: "去查看", Path: "/approvals?tab=mine",
+			})
+		}
+
+		// 4. 未读通知（审批结果、催交、异常认定都在这里）
+		if n := s.unreadNotificationCount(ctx, uid); n > 0 {
+			todos = append(todos, workbenchTodo{
+				Key: "notice", Dot: "#0089FF",
+				Text:   itoa(n) + " 条新通知",
+				Action: "去查看", Path: "/approvals?tab=mine",
+			})
 		}
 
 		// 5. 打卡提醒

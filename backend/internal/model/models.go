@@ -239,6 +239,158 @@ type AttendancePending struct {
 	Reports int `json:"reports"`
 }
 
+// ============ 考勤异常 ============
+
+// 异常类型。判定口径与 dayStatusOf 保持一致，只写在 scanExceptionsFor 一处。
+const (
+	ExcAbsent       = "absent"        // 整日无卡
+	ExcMissingOn    = "missing_on"    // 只有下班卡，缺上班卡
+	ExcMissingOff   = "missing_off"   // 只有上班卡，缺下班卡
+	ExcLate         = "late"          // 上班迟到
+	ExcEarly        = "early"         // 下班早退
+	ExcOutsideFence = "outside_fence" // 打卡点在允许范围外
+)
+
+// ExceptionKindText 异常类型的中文名，前端与导出共用，避免两边各写一份映射。
+var ExceptionKindText = map[string]string{
+	ExcAbsent:       "整日缺卡",
+	ExcMissingOn:    "缺上班卡",
+	ExcMissingOff:   "缺下班卡",
+	ExcLate:         "迟到",
+	ExcEarly:        "早退",
+	ExcOutsideFence: "打卡位置异常",
+}
+
+// CheckinException 考勤异常：扫描生成，人工处理。
+// 不可删，只改状态——年底核对时要有据可查。
+type CheckinException struct {
+	ID          string `json:"exception_id" bson:"exception_id"`
+	CompanyID   string `json:"-" bson:"company_id"`
+	UserID      string `json:"user_id" bson:"user_id"`
+	UserName    string `json:"user_name" bson:"user_name"`
+	Department  string `json:"department" bson:"department"`
+	Date        string `json:"date" bson:"date"`
+	Kind        string `json:"kind" bson:"kind"`
+	KindText    string `json:"kind_text" bson:"kind_text"`
+	Status      string `json:"status" bson:"status"` // open/appealed/resolved/ignored
+	Note        string `json:"note" bson:"note"`     // 系统给的说明，例如「09:41 打卡，晚于 09:05」
+	CheckinID   string `json:"checkin_id,omitempty" bson:"checkin_id,omitempty"`
+	HandlerID   string `json:"handler_id,omitempty" bson:"handler_id,omitempty"`
+	HandlerName string `json:"handler_name,omitempty" bson:"handler_name,omitempty"`
+	HandledAt   int64  `json:"handled_at,omitempty" bson:"handled_at,omitempty"`
+	Comment     string `json:"comment,omitempty" bson:"comment,omitempty"`
+	CreatedAt   int64  `json:"created_at" bson:"created_at"`
+	UpdatedAt   int64  `json:"updated_at" bson:"updated_at"`
+}
+
+type ExceptionSummary struct {
+	Open     int `json:"open"`
+	Appealed int `json:"appealed"`
+	Resolved int `json:"resolved"`
+	Ignored  int `json:"ignored"`
+	Total    int `json:"total"`
+}
+
+type ExceptionListResult struct {
+	Scope    string               `json:"scope"`
+	Month    string               `json:"month"`
+	Summary  ExceptionSummary     `json:"summary"`
+	Total    int                  `json:"total"`
+	List     []CheckinException   `json:"list"`
+}
+
+// ScanResult 一次扫描的结果，给手动触发的人看"补了几条/什么时候扫的"
+type ScanResult struct {
+	From    string `json:"from"`
+	To      string `json:"to"`
+	Scanned int    `json:"scanned"` // 检查了多少人天
+	Created int    `json:"created"` // 新生成多少条
+	Skipped int    `json:"skipped"` // 已存在而跳过
+	Updated int    `json:"updated"` // 状态需要跟着记录变化的条数
+}
+
+// ============ 考勤规则（可配置，覆盖环境变量默认值） ============
+
+// AttendanceRule 全公司一套作息。部门级/个人级等真有需要再加，避免一上来就做成四层。
+// 没有记录时后端回落环境变量（09:05 / 18:00），不会因为缺数据起不来。
+type AttendanceRule struct {
+	CompanyID    string `json:"-" bson:"company_id"`
+	WorkOnTime   string `json:"work_on_time" bson:"work_on_time"`
+	WorkOffTime  string `json:"work_off_time" bson:"work_off_time"`
+	LateGrace    int    `json:"late_grace" bson:"late_grace"`
+	EarliestOn   string `json:"earliest_on" bson:"earliest_on"`
+	NeedPhoto    bool   `json:"need_photo" bson:"need_photo"`
+	NeedLocation bool   `json:"need_location" bson:"need_location"`
+	// MakeupMaxDays / MakeupMaxMonth 补卡限制，0 表示不限
+	MakeupMaxDays  int    `json:"makeup_max_days" bson:"makeup_max_days"`
+	MakeupMaxMonth int    `json:"makeup_max_month" bson:"makeup_max_month"`
+	UpdatedBy      string `json:"updated_by,omitempty" bson:"updated_by,omitempty"`
+	UpdatedAt      int64  `json:"updated_at" bson:"updated_at"`
+	// Source 标识这份规则来自数据库还是环境变量，前端页面据此提示"尚未保存过自定义规则"
+	Source string `json:"source" bson:"-"`
+}
+
+// ============ 审批中心 ============
+
+// ApprovalItem 审批中心的统一条目。四类申请各自有一张源表，
+// 这里只做视图聚合，不落库——落一份副本迟早会和源表对不上。
+type ApprovalItem struct {
+	Kind      string `json:"kind"` // leave/makeup/exception/report
+	KindText  string `json:"kind_text"`
+	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
+	UserName  string `json:"user_name"`
+	Department string `json:"department"`
+	Title     string `json:"title"`
+	Subtitle  string `json:"subtitle"`
+	Status    string `json:"status"`
+	Time      int64  `json:"time"` // 提交时间，列表按它倒序
+	CanApprove bool  `json:"can_approve"`
+	Path      string `json:"path"`
+}
+
+type ApprovalListResult struct {
+	Tab      string         `json:"tab"`
+	Total    int            `json:"total"`
+	List     []ApprovalItem `json:"list"`
+	Pending  int            `json:"pending"` // 待我处理总数，工作台直接取这个
+}
+
+// SubmitRateRow 日报提交率的一行（按部门聚合）
+type SubmitRateRow struct {
+	Department string   `json:"department"`
+	Total      int      `json:"total"`
+	Submitted  int      `json:"submitted"`
+	Rate       int      `json:"rate"`
+	Missing    []string `json:"missing"` // 未提交的人名，只有能管人的人才有
+}
+
+type SubmitRateResult struct {
+	Date  string          `json:"date"`
+	Scope string          `json:"scope"`
+	Total int             `json:"total"`
+	Done  int             `json:"done"`
+	Rate  int             `json:"rate"`
+	Rows  []SubmitRateRow `json:"rows"`
+}
+
+// ============ 站内通知 ============
+
+// Notification 站内通知。IM 推送是同一条记录的"送达方式之一"，
+// 推送失败不影响站内可见，避免用户两头都收不到。
+type Notification struct {
+	ID        string `json:"notification_id" bson:"notification_id"`
+	CompanyID string `json:"-" bson:"company_id"`
+	UserID    string `json:"user_id" bson:"user_id"`
+	Kind      string `json:"kind" bson:"kind"` // approval/urge/exception/system
+	Title     string `json:"title" bson:"title"`
+	Content   string `json:"content" bson:"content"`
+	Path      string `json:"path" bson:"path"`
+	Read      bool   `json:"read" bson:"read"`
+	CreatedAt int64  `json:"created_at" bson:"created_at"`
+	ReadAt    int64  `json:"read_at,omitempty" bson:"read_at,omitempty"`
+}
+
 // ============ 日报 ============
 
 type ReportContent struct {

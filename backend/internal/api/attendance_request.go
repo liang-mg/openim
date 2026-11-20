@@ -278,6 +278,26 @@ func (s *Server) LeaveApprove(c *gin.Context) {
 		fail(c, "审批失败")
 		return
 	}
+
+	// 结果通知申请人（站内信 + 配置了 webhook 时同步推 IM）
+	result := "已通过"
+	if status == "rejected" {
+		result = "已驳回"
+	}
+	_ = s.notify(ctx, rec.UserID, "approval",
+		fmt.Sprintf("请假申请%s", result),
+		fmt.Sprintf("%s 至 %s（%d 天）：%s", rec.StartDate, rec.EndDate, rec.Days, strings.TrimSpace(req.Comment)),
+		"/leave")
+
+	// 请假通过后，这段时间里已经生成的缺卡异常应该自动核销——
+	// 人本来就不用上班，再让组长去点一遍"忽略"是纯浪费。
+	if status == "approved" {
+		for _, d := range workdayDates(rec.StartDate, rec.EndDate) {
+			s.autoResolveException(ctx, rec.UserID, d,
+				[]string{model.ExcAbsent, model.ExcMissingOn, model.ExcMissingOff},
+				"请假审批通过，自动核销")
+		}
+	}
 	ok(c, gin.H{"status": status})
 }
 
@@ -315,7 +335,9 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 		fail(c, "不能补未来的卡")
 		return
 	}
-	maxDays := s.Cfg.MakeupMaxDays
+	// 补卡限制以「考勤规则配置」为准（管理员可改），环境变量只是初始落库前的兜底
+	rule := s.currentRule()
+	maxDays := rule.MakeupMaxDays
 	if maxDays > 0 && req.Date < todayStr(time.Now().AddDate(0, 0, -maxDays)) {
 		fail(c, fmt.Sprintf("只能补最近 %d 天的卡", maxDays))
 		return
@@ -356,7 +378,7 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 		return
 	}
 	// 边界：每月次数上限
-	if s.Cfg.MakeupMaxMonth > 0 {
+	if rule.MakeupMaxMonth > 0 {
 		prefix := req.Date[:7]
 		cur, err := s.Store.Makeups().Find(ctx, bson.M{
 			"company_id": s.Cfg.CompanyID, "user_id": uid,
@@ -368,8 +390,8 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 			return
 		}
 		n, _ := s.countDocs(ctx, cur)
-		if n >= s.Cfg.MakeupMaxMonth {
-			fail(c, fmt.Sprintf("本月补卡已达上限 %d 次", s.Cfg.MakeupMaxMonth))
+		if n >= rule.MakeupMaxMonth {
+			fail(c, fmt.Sprintf("本月补卡已达上限 %d 次", rule.MakeupMaxMonth))
 			return
 		}
 	}
@@ -558,6 +580,30 @@ func (s *Server) MakeupApprove(c *gin.Context) {
 	); err != nil {
 		fail(c, "审批失败")
 		return
+	}
+
+	result := "已通过"
+	if status == "rejected" {
+		result = "已驳回"
+	}
+	typeText := "上班卡"
+	if rec.Type == "off" {
+		typeText = "下班卡"
+	}
+	_ = s.notify(ctx, rec.UserID, "approval",
+		fmt.Sprintf("补卡申请%s", result),
+		fmt.Sprintf("%s %s %s：%s", rec.Date, typeText, rec.Time, strings.TrimSpace(req.Comment)),
+		"/leave")
+
+	// 补卡通过 = 这一次真实上下班事实补上了，对应的缺卡异常不必再人工处理
+	if status == "approved" {
+		kinds := []string{model.ExcAbsent}
+		if rec.Type == "on" {
+			kinds = append(kinds, model.ExcMissingOn)
+		} else {
+			kinds = append(kinds, model.ExcMissingOff)
+		}
+		s.autoResolveException(ctx, rec.UserID, rec.Date, kinds, "补卡审批通过，自动核销")
 	}
 	ok(c, gin.H{"status": status, "checkin_id": checkinID})
 }

@@ -37,6 +37,9 @@ func main() {
 	}
 
 	srv := api.NewServer(st, cfg, files)
+	// 考勤异常定时扫描：每 30 分钟扫最近 3 天，停机漏的会自动补齐。
+	// 关掉的方式是 OA_AUTO_SCAN=false（只能手动触发）。
+	srv.AutoScanLoop()
 	log.Printf("xinbo-oa listening on :%s (company=%s, db=%s)", cfg.Port, cfg.CompanyID, cfg.MongoDB)
 	if err = srv.Router().Run(":" + cfg.Port); err != nil {
 		log.Fatalf("server exited: %v", err)

@@ -6,17 +6,21 @@ import {
   UndoOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { App as AntdApp, Button, Empty, Form, Input, Modal, Select, Spin, Switch } from "antd";
+import { App as AntdApp, Button, Empty, Form, Input, InputNumber, Modal, Select, Spin, Switch, TimePicker } from "antd";
 import clsx from "clsx";
+import dayjs from "dayjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  getAttendanceRule,
   getEmployeeList,
   getIMUserCandidates,
   getMe,
+  saveAttendanceRule,
   saveEmployee,
   setEmployeeDisabled,
+  type AttendanceRule,
   type EmployeeView,
   type IMUserOption,
   type OaIdentity,
@@ -205,6 +209,42 @@ export const OaAdmin = () => {
 
   const canManage = !!me?.is_admin;
 
+  // ---------- 考勤规则（管理员可改，改完即时生效） ----------
+  const [rule, setRule] = useState<AttendanceRule | null>(null);
+  const [ruleSaving, setRuleSaving] = useState(false);
+
+  useEffect(() => {
+    if (!canManage) return;
+    let alive = true;
+    void getAttendanceRule()
+      .then((r) => { if (alive) setRule(r); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [canManage]);
+
+  const doSaveRule = useCallback(async () => {
+    if (!rule) return;
+    setRuleSaving(true);
+    try {
+      const saved = await saveAttendanceRule({
+        work_on_time: rule.work_on_time,
+        work_off_time: rule.work_off_time,
+        late_grace: rule.late_grace,
+        earliest_on: rule.earliest_on,
+        need_photo: rule.need_photo,
+        need_location: rule.need_location,
+        makeup_max_days: rule.makeup_max_days,
+        makeup_max_month: rule.makeup_max_month,
+      });
+      setRule(saved);
+      message.success("考勤规则已保存，之后的打卡按新规则判定");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setRuleSaving(false);
+    }
+  }, [rule, message]);
+
   return (
     <div className={styles["admin-page"]}>
       <div className={styles["admin-topbar"]}>
@@ -237,6 +277,94 @@ export const OaAdmin = () => {
                 <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
                   添加员工
                 </Button>
+              </div>
+
+              <div className={styles["rule-card"]}>
+                <div className={styles["rule-head"]}>
+                  <div>
+                    <div className={styles["rule-title"]}>考勤规则</div>
+                    <div className={styles["rule-desc"]}>
+                      {rule?.source === "env"
+                        ? "当前在用默认配置（09:05 上班 / 18:00 下班），保存后以这里为准"
+                        : "保存后立即生效；已产生的打卡记录判定不回溯，历史报表数字不变"}
+                    </div>
+                  </div>
+                  <Button size="small" type="primary" loading={ruleSaving} onClick={() => void doSaveRule()}>
+                    保存规则
+                  </Button>
+                </div>
+                {rule && (
+                  <div className={styles["rule-grid"]}>
+                    <label>
+                      <span>上班时间</span>
+                      <TimePicker
+                        size="small"
+                        format="HH:mm"
+                        minuteStep={5}
+                        allowClear={false}
+                        value={dayjs(rule.work_on_time, "HH:mm")}
+                        onChange={(v) => v && setRule({ ...rule, work_on_time: v.format("HH:mm") })}
+                      />
+                    </label>
+                    <label>
+                      <span>下班时间</span>
+                      <TimePicker
+                        size="small"
+                        format="HH:mm"
+                        minuteStep={5}
+                        allowClear={false}
+                        value={dayjs(rule.work_off_time, "HH:mm")}
+                        onChange={(v) => v && setRule({ ...rule, work_off_time: v.format("HH:mm") })}
+                      />
+                    </label>
+                    <label>
+                      <span>最早上班卡</span>
+                      <TimePicker
+                        size="small"
+                        format="HH:mm"
+                        minuteStep={5}
+                        allowClear={false}
+                        value={dayjs(rule.earliest_on, "HH:mm")}
+                        onChange={(v) => v && setRule({ ...rule, earliest_on: v.format("HH:mm") })}
+                      />
+                    </label>
+                    <label>
+                      <span>迟到宽限（分钟）</span>
+                      <InputNumber
+                        size="small" min={0} max={120} value={rule.late_grace}
+                        onChange={(v) => setRule({ ...rule, late_grace: Number(v ?? 0) })}
+                      />
+                    </label>
+                    <label>
+                      <span>可补最近几天</span>
+                      <InputNumber
+                        size="small" min={0} max={90} value={rule.makeup_max_days}
+                        onChange={(v) => setRule({ ...rule, makeup_max_days: Number(v ?? 0) })}
+                      />
+                    </label>
+                    <label>
+                      <span>每月补卡上限</span>
+                      <InputNumber
+                        size="small" min={0} max={99} value={rule.makeup_max_month}
+                        onChange={(v) => setRule({ ...rule, makeup_max_month: Number(v ?? 0) })}
+                      />
+                    </label>
+                    <label className={styles["rule-switch"]}>
+                      <span>打卡需要照片</span>
+                      <Switch
+                        size="small" checked={rule.need_photo}
+                        onChange={(v) => setRule({ ...rule, need_photo: v })}
+                      />
+                    </label>
+                    <label className={styles["rule-switch"]}>
+                      <span>打卡需要定位</span>
+                      <Switch
+                        size="small" checked={rule.need_location}
+                        onChange={(v) => setRule({ ...rule, need_location: v })}
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div className={styles.toolbar}>

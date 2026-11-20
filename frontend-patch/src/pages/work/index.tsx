@@ -29,7 +29,7 @@ const WORK_APPS = [
   { key: "attendance", name: "出勤记录", icon: <ClockCircleOutlined />, path: "/attendance" },
   { key: "leave", name: "请假补卡", icon: <CalendarOutlined />, path: "/leave" },
   { key: "meeting", name: "线上会议", icon: <VideoCameraOutlined />, path: "" },
-  { key: "approval", name: "审批中心", icon: <AuditOutlined />, path: "" },
+  { key: "approval", name: "审批中心", icon: <AuditOutlined />, path: "/approvals" },
   { key: "calendar", name: "工作日历", icon: <CalendarOutlined />, path: "" },
 ];
 
