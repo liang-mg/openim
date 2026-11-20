@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -33,18 +34,11 @@ const (
 func (s *Server) approvalItems(ctx context.Context, uid, tab, kind string) ([]model.ApprovalItem, error) {
 	items := make([]model.ApprovalItem, 0, 16)
 
-	// 能管的人：team 视角下的下属（不含自己）。领导/管理员递归全链。
-	managed := s.visibleUserIDs(ctx, uid, ScopeTeam)
-	if !s.canUseScope(ctx, uid, ScopeTeam) {
-		managed = nil
-	}
-	filtered := make([]string, 0, len(managed))
-	for _, id := range managed {
-		if id != uid {
-			filtered = append(filtered, id)
+	if tab == TabPending {
+		if me := s.getEmployee(ctx, uid); me != nil && me.Disabled {
+			return items, nil
 		}
 	}
-	managed = filtered
 
 	switch tab {
 	case TabMine:
@@ -54,19 +48,17 @@ func (s *Server) approvalItems(ctx context.Context, uid, tab, kind string) ([]mo
 		items = append(items, s.handledItems(ctx, uid, kind)...)
 
 	default: // pending
-		if len(managed) > 0 {
-			items = append(items, s.pendingRequestItems(ctx, uid, managed, kind)...)
+		items = append(items, s.pendingRequestItems(ctx, uid, s.visibleUserIDs(ctx, uid, ScopeTeam), kind)...)
+	}
+	if kind == "" || kind == "report" {
+		reports, err := s.reportApprovalItems(ctx, uid, tab)
+		if err != nil {
+			return nil, err
 		}
-		// 日报：组长看直属的 submitted，领导/管理员看链上的 pending_leader
-		if kind == "" || kind == "report" {
-			items = append(items, s.pendingReportItems(ctx, uid)...)
-		}
+		items = append(items, reports...)
 	}
 
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Time > items[j].Time })
-	if len(items) > 300 {
-		items = items[:300]
-	}
 	return items, nil
 }
 
@@ -135,11 +127,16 @@ func exceptionItem(r model.CheckinException, uid string) model.ApprovalItem {
 // 申请还要过一遍 canApproveRequest（审批人字段在创建时按 manager_id 定死了）。
 func (s *Server) pendingRequestItems(ctx context.Context, uid string, ids []string, kind string) []model.ApprovalItem {
 	out := make([]model.ApprovalItem, 0, 16)
+	requestFilter := bson.M{
+		"company_id": s.Cfg.CompanyID, "status": "pending", "user_id": bson.M{"$ne": uid},
+		"$or": bson.A{
+			bson.M{"approver_id": uid},
+			bson.M{"approver_id": bson.M{"$in": bson.A{"", nil}}, "user_id": bson.M{"$in": append([]string{}, ids...)}},
+		},
+	}
 
 	if kind == "" || kind == "leave" {
-		cur, err := s.Store.Leaves().Find(ctx, bson.M{
-			"company_id": s.Cfg.CompanyID, "status": "pending", "user_id": bson.M{"$in": ids},
-		}, options.Find().SetSort(bson.D{{Key: "submitted_at", Value: -1}}).SetLimit(100))
+		cur, err := s.Store.Leaves().Find(ctx, requestFilter)
 		if err == nil {
 			var list []model.LeaveRequest
 			if cur.All(ctx, &list) == nil {
@@ -153,9 +150,7 @@ func (s *Server) pendingRequestItems(ctx context.Context, uid string, ids []stri
 	}
 
 	if kind == "" || kind == "makeup" {
-		cur, err := s.Store.Makeups().Find(ctx, bson.M{
-			"company_id": s.Cfg.CompanyID, "status": "pending", "user_id": bson.M{"$in": ids},
-		}, options.Find().SetSort(bson.D{{Key: "submitted_at", Value: -1}}).SetLimit(100))
+		cur, err := s.Store.Makeups().Find(ctx, requestFilter)
 		if err == nil {
 			var list []model.MakeupRequest
 			if cur.All(ctx, &list) == nil {
@@ -169,9 +164,10 @@ func (s *Server) pendingRequestItems(ctx context.Context, uid string, ids []stri
 	}
 
 	if kind == "" || kind == "exception" {
+		allowed := append([]string{}, s.exceptionHandlingIDs(ctx, uid)...)
 		cur, err := s.Store.Exceptions().Find(ctx, bson.M{
-			"company_id": s.Cfg.CompanyID, "status": exceptionPending, "user_id": bson.M{"$in": ids},
-		}, options.Find().SetSort(bson.D{{Key: "date", Value: -1}}).SetLimit(100))
+			"company_id": s.Cfg.CompanyID, "status": exceptionPending, "user_id": bson.M{"$in": allowed, "$ne": uid},
+		})
 		if err == nil {
 			var list []model.CheckinException
 			if cur.All(ctx, &list) == nil {
@@ -238,7 +234,7 @@ func (s *Server) handledItems(ctx context.Context, uid, kind string) []model.App
 
 	if kind == "" || kind == "leave" {
 		cur, err := s.Store.Leaves().Find(ctx, bson.M{
-			"company_id": s.Cfg.CompanyID, "approver_id": uid,
+			"company_id": s.Cfg.CompanyID, "approver_id": uid, "status": bson.M{"$in": bson.A{"approved", "rejected"}},
 		}, options.Find().SetSort(bson.D{{Key: "approved_at", Value: -1}}).SetLimit(100))
 		if err == nil {
 			var list []model.LeaveRequest
@@ -254,7 +250,7 @@ func (s *Server) handledItems(ctx context.Context, uid, kind string) []model.App
 	}
 	if kind == "" || kind == "makeup" {
 		cur, err := s.Store.Makeups().Find(ctx, bson.M{
-			"company_id": s.Cfg.CompanyID, "approver_id": uid,
+			"company_id": s.Cfg.CompanyID, "approver_id": uid, "status": bson.M{"$in": bson.A{"approved", "rejected"}},
 		}, options.Find().SetSort(bson.D{{Key: "approved_at", Value: -1}}).SetLimit(100))
 		if err == nil {
 			var list []model.MakeupRequest
@@ -287,65 +283,92 @@ func (s *Server) handledItems(ctx context.Context, uid, kind string) []model.App
 	return out
 }
 
-// pendingReportItems 待我审的日报：组长看直属「已提交」，领导/管理员看链上「待审阅」
-func (s *Server) pendingReportItems(ctx context.Context, uid string) []model.ApprovalItem {
-	out := make([]model.ApprovalItem, 0, 8)
+func reportReviewPath(reportID string) string {
+	return "/report-review?" + url.Values{"report_id": {reportID}}.Encode()
+}
 
-	direct := s.subordinateIDs(ctx, uid)
-	if len(direct) > 0 {
-		cur, err := s.Store.Reports().Find(ctx, bson.M{
-			"company_id":     s.Cfg.CompanyID,
-			"status":         "submitted",
-			"author.user_id": bson.M{"$in": direct},
-		}, options.Find().SetSort(bson.D{{Key: "submit_time", Value: -1}}).SetLimit(50))
-		if err == nil {
-			var list []model.ReportRecord
-			if cur.All(ctx, &list) == nil {
-				for _, r := range list {
-					out = append(out, model.ApprovalItem{
-						Kind: "report", KindText: "日报", ID: r.ID,
-						UserID: r.Author.UserID, UserName: r.Author.Name, Department: r.Author.Department,
-						Title:    "日报待点评",
-						Subtitle: r.Period + " · " + firstLine(r.Content.Done),
-						Status:   r.Status,
-						Time:     submitTimeOf(r),
-						CanApprove: true,
-						Path:     "/report-review",
-					})
-				}
-			}
+func reportApprovalItem(r model.ReportRecord, canApprove bool) model.ApprovalItem {
+	title := "工作日报"
+	if canApprove && r.Status == "submitted" {
+		title = "日报待点评"
+	} else if canApprove && r.Status == "pending_leader" {
+		title = "日报待终审"
+	}
+	return model.ApprovalItem{
+		Kind: "report", KindText: "日报", ID: r.ID,
+		UserID: r.Author.UserID, UserName: r.Author.Name, Department: r.Author.Department,
+		Title: title, Subtitle: r.Period + " · " + firstLine(r.Content.Done),
+		Status: r.Status, Time: submitTimeOf(r), CanApprove: canApprove,
+		Path: reportReviewPath(r.ID),
+	}
+}
+
+func (s *Server) reportApprovalItems(ctx context.Context, uid, tab string) ([]model.ApprovalItem, error) {
+	out := []model.ApprovalItem{}
+	if tab == TabPending {
+		rows, err := s.pendingReportsForReviewer(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			out = append(out, reportApprovalItem(row.ReportRecord, true))
+		}
+		return out, nil
+	}
+
+	filter := bson.M{
+		"company_id": s.Cfg.CompanyID,
+		"status":     bson.M{"$in": bson.A{"submitted", "pending_leader", "archived"}},
+	}
+	var org reportReviewOrg
+	if tab == TabMine {
+		filter["author.user_id"] = uid
+	} else {
+		filter["reviews.reviewer_id"] = uid
+		var err error
+		org, err = s.loadReportReviewOrg(ctx)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// 领导/管理员：组员已上报、等审阅的
-	if s.canUseScope(ctx, uid, ScopeAll) || s.roleOf(ctx, uid) == "leader" {
-		ids := s.visibleUserIDs(ctx, uid, ScopeTeam)
-		if len(ids) > 0 {
-			cur, err := s.Store.Reports().Find(ctx, bson.M{
-				"company_id":     s.Cfg.CompanyID,
-				"status":         "pending_leader",
-				"author.user_id": bson.M{"$in": ids},
-			}, options.Find().SetSort(bson.D{{Key: "submit_time", Value: -1}}).SetLimit(50))
-			if err == nil {
-				var list []model.ReportRecord
-				if cur.All(ctx, &list) == nil {
-					for _, r := range list {
-						out = append(out, model.ApprovalItem{
-							Kind: "report", KindText: "日报", ID: r.ID,
-							UserID: r.Author.UserID, UserName: r.Author.Name, Department: r.Author.Department,
-							Title:    "日报待审阅",
-							Subtitle: r.Period + " · " + firstLine(r.Content.Done),
-							Status:   r.Status,
-							Time:     submitTimeOf(r),
-							CanApprove: true,
-							Path:     "/report-review",
-						})
-					}
-				}
-			}
-		}
+	cur, err := s.Store.Reports().Find(ctx, filter)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	var rows []model.ReportRecord
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if tab == TabDone && !org.canReadReport(uid, row) {
+			continue
+		}
+		item := reportApprovalItem(row, false)
+		if tab == TabDone {
+			item.Time = row.UpdatedAt
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (s *Server) personalPendingExceptionItems(ctx context.Context, uid string) ([]model.ApprovalItem, error) {
+	cur, err := s.Store.Exceptions().Find(ctx, bson.M{
+		"company_id": s.Cfg.CompanyID, "user_id": uid, "status": exceptionPending,
+	}, options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	var rows []model.CheckinException
+	if err := cur.All(ctx, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]model.ApprovalItem, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, exceptionItem(row, uid))
+	}
+	return out, nil
 }
 
 func submitTimeOf(r model.ReportRecord) int64 {
@@ -383,13 +406,20 @@ func (s *Server) ApprovalList(c *gin.Context) {
 		kind = ""
 	}
 
-	list, err := s.approvalItems(ctx, uid, tab, kind)
+	var list []model.ApprovalItem
+	var err error
+	personalPending := tab == TabMine && kind == "exception" && c.Query("status") == "pending"
+	if personalPending {
+		list, err = s.personalPendingExceptionItems(ctx, uid)
+	} else {
+		list, err = s.approvalItems(ctx, uid, tab, kind)
+	}
 	if err != nil {
 		fail(c, "查询失败")
 		return
 	}
 	pending := 0
-	if tab == TabPending {
+	if tab == TabPending && kind == "" {
 		pending = len(list)
 	} else {
 		// 待办数永远按"待我处理"算，与当前页签无关——页签标题的数字不能跟着切
@@ -398,7 +428,34 @@ func (s *Server) ApprovalList(c *gin.Context) {
 		}
 	}
 
+	if tab == TabPending && (c.Query("scope") != "" || c.Query("department_id") != "") {
+		scope, allowed := s.resolveScope(ctx, uid, c.Query("scope"))
+		if !allowed {
+			failCode(c, 403, "无权查看该范围")
+			return
+		}
+		_, ids, err := s.attendanceEmployees(ctx, uid, scope, c.Query("department_id"))
+		if err != nil {
+			fail(c, "查询部门失败")
+			return
+		}
+		list = filterApprovalItemsForEmployees(list, ids)
+	}
 	ok(c, model.ApprovalListResult{Tab: tab, Total: len(list), List: list, Pending: pending})
+}
+
+func filterApprovalItemsForEmployees(items []model.ApprovalItem, ids []string) []model.ApprovalItem {
+	allowed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		allowed[id] = true
+	}
+	filtered := make([]model.ApprovalItem, 0, len(items))
+	for _, item := range items {
+		if allowed[item.UserID] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 // SubmitRate 日报提交率：按部门聚合，组长以上才返回未交名单
@@ -413,30 +470,26 @@ func (s *Server) SubmitRate(c *gin.Context) {
 		return
 	}
 	date := c.Query("date")
+	today := todayStr(time.Now())
 	if _, err := time.Parse("2006-01-02", date); err != nil {
-		date = todayStr(time.Now())
+		date = today
 	}
 
-	ids := []string{uid}
-	if scope != ScopeMine {
-		ids = s.visibleUserIDs(ctx, uid, scope)
-		if scope == ScopeTeam {
-			filtered := make([]string, 0, len(ids))
-			for _, id := range ids {
-				if id != uid {
-					filtered = append(filtered, id)
-				}
-			}
-			ids = filtered
-		}
+	result, err := s.buildSubmitRate(ctx, uid, scope, date, today, c.Query("department_id"))
+	if err != nil {
+		fail(c, "查询失败")
+		return
 	}
-	emps := s.scopeEmployees(ctx, ids)
-	if scope == ScopeMine && len(emps) == 0 {
-		emps = []model.Employee{{UserID: uid, RealName: uid, Department: "未分配"}}
+	ok(c, result)
+}
+
+func (s *Server) buildSubmitRate(ctx context.Context, uid, scope, date, today, departmentID string) (model.SubmitRateResult, error) {
+	emps, ids, err := s.attendanceEmployees(ctx, uid, scope, departmentID)
+	if err != nil {
+		return model.SubmitRateResult{}, err
 	}
 	if len(emps) == 0 {
-		ok(c, model.SubmitRateResult{Date: date, Scope: scope, Rows: []model.SubmitRateRow{}})
-		return
+		return model.SubmitRateResult{Date: date, Today: today, Scope: scope, Rows: []model.SubmitRateRow{}}, nil
 	}
 
 	// 已提交 = 只要不是草稿就算（submitted/pending_leader/archived）
@@ -448,13 +501,11 @@ func (s *Server) SubmitRate(c *gin.Context) {
 		"author.user_id": bson.M{"$in": ids},
 	})
 	if err != nil {
-		fail(c, "查询失败")
-		return
+		return model.SubmitRateResult{}, err
 	}
 	var reports []model.ReportRecord
 	if err = cur.All(ctx, &reports); err != nil {
-		fail(c, "查询失败")
-		return
+		return model.SubmitRateResult{}, err
 	}
 	done := make(map[string]bool, len(reports))
 	for _, r := range reports {
@@ -488,7 +539,7 @@ func (s *Server) SubmitRate(c *gin.Context) {
 	}
 	sort.Strings(order)
 
-	result := model.SubmitRateResult{Date: date, Scope: scope, Rows: make([]model.SubmitRateRow, 0, len(order))}
+	result := model.SubmitRateResult{Date: date, Today: today, Scope: scope, Rows: make([]model.SubmitRateRow, 0, len(order))}
 	for _, dept := range order {
 		b := byDept[dept]
 		row := model.SubmitRateRow{
@@ -510,11 +561,10 @@ func (s *Server) SubmitRate(c *gin.Context) {
 	if result.Total > 0 {
 		result.Rate = int(float64(result.Done)/float64(result.Total)*100 + 0.5)
 	}
-	ok(c, result)
+	return result, nil
 }
 
-// UrgeReports 一键催交：给未提交的人发通知，同一人当天只催一次。
-// 返回里如实给 pushed——没配 IM 就是 false，不假装推送成功。
+// UrgeReports 只催交当天未提交的日报。先保存站内通知，再汇总实际 IM 请求结果。
 func (s *Server) UrgeReports(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
@@ -522,9 +572,10 @@ func (s *Server) UrgeReports(c *gin.Context) {
 	var req struct {
 		Date string `json:"date"`
 	}
-	_ = c.ShouldBindJSON(&req)
-	if _, err := time.Parse("2006-01-02", req.Date); err != nil {
-		req.Date = todayStr(time.Now())
+	now := time.Now()
+	if err := c.ShouldBindJSON(&req); err != nil || req.Date != todayStr(now) {
+		fail(c, "只能催交当天的日报")
+		return
 	}
 
 	uid := auth.UserID(c)
@@ -546,7 +597,7 @@ func (s *Server) UrgeReports(c *gin.Context) {
 	}
 	emps := s.scopeEmployees(ctx, ids)
 	if len(emps) == 0 {
-		ok(c, gin.H{"urged": 0, "skipped": 0, "pushed": false})
+		ok(c, urgeReportResult{})
 		return
 	}
 
@@ -571,20 +622,59 @@ func (s *Server) UrgeReports(c *gin.Context) {
 		done[r.Author.UserID] = true
 	}
 
-	urged, skipped := 0, 0
+	// 升级当天兼容旧版已经发送的催交。新通知用业务日期的唯一键去重。
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	legacyRecipients, err := s.Store.Notifications().Distinct(ctx, "user_id", bson.M{
+		"company_id": s.Cfg.CompanyID, "user_id": bson.M{"$in": ids}, "kind": "urge", "path": "/report",
+		"_id": bson.M{"$type": "objectId"},
+		"created_at": bson.M{"$gte": start.UnixMilli(), "$lt": start.AddDate(0, 0, 1).UnixMilli()},
+	})
+	if err != nil {
+		fail(c, "查询催交记录失败")
+		return
+	}
+	legacy := make(map[string]bool, len(legacyRecipients))
+	for _, id := range legacyRecipients {
+		if userID, ok := id.(string); ok {
+			legacy[userID] = true
+		}
+	}
+
+	result := urgeReportResult{}
+	var records []model.Notification
 	for _, e := range emps {
 		if done[e.UserID] {
 			continue
 		}
-		// 当天已催过就跳过：催三次不会让人写得更快，只会让人关掉通知
-		if s.notifiedToday(ctx, e.UserID, "urge", "/report") {
-			skipped++
+		if legacy[e.UserID] {
+			result.Skipped++
 			continue
 		}
-		if err := s.notify(ctx, e.UserID, "urge", "日报催交",
-			fmt.Sprintf("%s 的日报还没提交，请尽快补交", req.Date), "/report"); err == nil {
-			urged++
+		rec, err := s.storeNotification(ctx, e.UserID, "urge", req.Date, "日报催交",
+			fmt.Sprintf("%s 的日报还没提交，请尽快补交", req.Date), "/report")
+		if err != nil {
+			result.Failed++
+		} else if rec.ID == "" {
+			result.Skipped++
+		} else {
+			records = append(records, rec)
 		}
 	}
-	ok(c, gin.H{"urged": urged, "skipped": skipped, "pushed": s.Cfg.IMPushURL != ""})
+	statuses := s.finishNotifications(records)
+	result.Urged = len(records)
+	result.IMSucceeded = statuses[imSucceeded]
+	result.IMFailed = statuses[imFailed]
+	result.IMNotConfigured = statuses[imNotConfigured]
+	result.Pushed = result.IMSucceeded > 0
+	ok(c, result)
+}
+
+type urgeReportResult struct {
+	Urged           int  `json:"urged"`
+	Skipped         int  `json:"skipped"`
+	Failed          int  `json:"failed"`
+	Pushed          bool `json:"pushed"`
+	IMSucceeded     int  `json:"im_succeeded"`
+	IMFailed        int  `json:"im_failed"`
+	IMNotConfigured int  `json:"im_not_configured"`
 }

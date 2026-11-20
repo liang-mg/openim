@@ -87,6 +87,27 @@ const router = createHashRouter([
             },
           },
           {
+            path: "notifications",
+            async lazy() {
+              const { Notifications } = await import("@/pages/notifications");
+              return { Component: Notifications };
+            },
+          },
+          {
+            path: "announcements/:id",
+            async lazy() {
+              const { AnnouncementDetail } = await import("@/pages/announcements");
+              return { Component: AnnouncementDetail };
+            },
+          },
+          {
+            path: "management-dashboard",
+            async lazy() {
+              const { ManagementDashboard } = await import("@/pages/management-dashboard");
+              return { Component: ManagementDashboard };
+            },
+          },
+          {
             path: "report-review",
             async lazy() {
               const { ReportReview } = await import("@/pages/report-review");

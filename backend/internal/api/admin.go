@@ -6,6 +6,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/xinbo/xinbo-oa/internal/auth"
@@ -24,7 +26,7 @@ var validRoles = map[string]bool{"employee": true, "manager": true, "leader": tr
 // isAdmin 当前登录人是否能维护人员。
 // is_admin 标记与历史 hr/admin 角色都算，保证老数据可用。
 func (s *Server) isAdmin(ctx context.Context, uid string) bool {
-	if e := s.getEmployee(ctx, uid); e != nil {
+	if e := s.getEmployee(ctx, uid); e != nil && !e.Disabled {
 		return e.IsAdmin || e.Role == "hr" || e.Role == "admin"
 	}
 	return false
@@ -199,6 +201,7 @@ type saveEmployeeReq struct {
 	UserID     string `json:"user_id"`
 	RealName   string `json:"real_name"`
 	Department string `json:"department"`
+	DepartmentID *string `json:"department_id"`
 	Position   string `json:"position"`
 	Role       string `json:"role"`
 	ManagerID  string `json:"manager_id"`
@@ -257,10 +260,6 @@ func (s *Server) SaveEmployee(c *gin.Context) {
 		fail(c, "姓名不能为空")
 		return
 	}
-	if req.Department == "" {
-		fail(c, "部门不能为空")
-		return
-	}
 	if !validRoles[req.Role] {
 		fail(c, "角色取值不合法")
 		return
@@ -286,6 +285,35 @@ func (s *Server) SaveEmployee(c *gin.Context) {
 	}
 
 	existing := s.getEmployee(ctx, req.UserID)
+	set := bson.M{
+		"real_name":  req.RealName,
+		"position":   req.Position,
+		"role":       req.Role,
+		"manager_id": req.ManagerID,
+		"is_admin":   req.IsAdmin,
+	}
+	filter := bson.M{"company_id": s.Cfg.CompanyID, "user_id": req.UserID}
+	if req.DepartmentID != nil {
+		departmentID := strings.TrimSpace(*req.DepartmentID)
+		set["department_id"] = departmentID
+		if departmentID != "" {
+			department, err := s.departmentByID(ctx, departmentID)
+			if err != nil {
+				fail(c, "目标部门不存在")
+				return
+			}
+			set["department"] = department.Name
+		} else {
+			set["department"] = req.Department
+		}
+	} else if existing == nil || existing.DepartmentID == "" {
+		set["department"] = req.Department
+		filter["department_id"] = unlinkedDepartmentFilter()
+	}
+	if value, updating := set["department"]; updating && value == "" {
+		fail(c, "请选择部门或填写旧部门名称")
+		return
+	}
 	if existing != nil && existing.UserID == operator &&
 		(existing.IsAdmin && !req.IsAdmin || existing.Role != req.Role) {
 		// 允许改自己，但不能把自己降权到看不见这个页面，避免把最后一个管理员锁死
@@ -300,23 +328,29 @@ func (s *Server) SaveEmployee(c *gin.Context) {
 		}
 	}
 
-	set := bson.M{
-		"real_name":  req.RealName,
-		"department": req.Department,
-		"position":   req.Position,
-		"role":       req.Role,
-		"manager_id": req.ManagerID,
-		"is_admin":   req.IsAdmin,
-		"disabled":   false,
+	var before *model.Employee
+	var err error
+	if existing == nil {
+		doc := bson.M{"company_id": s.Cfg.CompanyID, "user_id": req.UserID, "disabled": false}
+		for field, value := range set {
+			doc[field] = value
+		}
+		_, err = s.Store.Employees().InsertOne(ctx, doc)
+	} else {
+		before = &model.Employee{}
+		err = s.Store.Employees().FindOneAndUpdate(ctx, filter, bson.M{"$set": set},
+			options.FindOneAndUpdate().SetReturnDocument(options.Before)).Decode(before)
 	}
-	if _, err := s.Store.Employees().UpdateOne(ctx,
-		bson.M{"company_id": s.Cfg.CompanyID, "user_id": req.UserID},
-		bson.M{"$set": set},
-		options.Update().SetUpsert(true),
-	); err != nil {
-		fail(c, "保存失败")
+	if err != nil {
+		s.recordOperationAudit(ctx, operator, auditEmployeeUpdate, req.UserID, auditResultFailed)
+		if errors.Is(err, mongo.ErrNoDocuments) || mongo.IsDuplicateKeyError(err) {
+			fail(c, "员工档案已更新，请刷新后重试")
+		} else {
+			fail(c, "保存失败")
+		}
 		return
 	}
+	s.recordOperationAudit(ctx, operator, auditEmployeeUpdate, req.UserID, auditResultSuccess, employeeAuditChanges(before, set)...)
 
 	if e := s.getEmployee(ctx, req.UserID); e != nil {
 		ok(c, e)
@@ -380,12 +414,17 @@ func (s *Server) DisableEmployee(c *gin.Context) {
 		}
 	}
 
-	if _, err := s.Store.Employees().UpdateOne(ctx,
+	var before model.Employee
+	if err := s.Store.Employees().FindOneAndUpdate(ctx,
 		bson.M{"company_id": s.Cfg.CompanyID, "user_id": req.UserID},
 		bson.M{"$set": bson.M{"disabled": req.Disabled}},
-	); err != nil {
+		options.FindOneAndUpdate().SetReturnDocument(options.Before),
+	).Decode(&before); err != nil {
+		s.recordOperationAudit(ctx, operator, auditEmployeeDisable, target.UserID, auditResultFailed)
 		fail(c, "操作失败")
 		return
 	}
+	s.recordOperationAudit(ctx, operator, auditEmployeeDisable, target.UserID, auditResultSuccess,
+		auditChange("disabled", before.Disabled, req.Disabled))
 	ok(c, gin.H{"user_id": req.UserID, "disabled": req.Disabled})
 }

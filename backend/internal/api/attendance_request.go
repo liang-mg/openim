@@ -2,15 +2,16 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 
 	"github.com/xinbo/xinbo-oa/internal/auth"
 	"github.com/xinbo/xinbo-oa/internal/model"
@@ -32,33 +33,8 @@ func leaveTypeName(t string) string {
 	return t
 }
 
-// 当天是不是工作日（周末休息）。法定节假日等日历接入后在这里扩展。
-func workdayOf(date string) bool {
-	d, err := time.Parse("2006-01-02", date)
-	if err != nil {
-		return false
-	}
-	return d.Weekday() != time.Saturday && d.Weekday() != time.Sunday
-}
-
-// workdaysBetween [start,end] 里的工作日天数；起止倒置返回 0
-func workdaysBetween(start, end string) int {
-	a, e1 := time.Parse("2006-01-02", start)
-	b, e2 := time.Parse("2006-01-02", end)
-	if e1 != nil || e2 != nil || a.After(b) {
-		return 0
-	}
-	n := 0
-	for d := a; !d.After(b); d = d.AddDate(0, 0, 1) {
-		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-			n++
-		}
-	}
-	return n
-}
-
-// 这段时间里的工作日日期列表（给统计口径用）
-func workdayDates(start, end string) []string {
+// workdayDates returns the applicable days in a leave request.
+func workdayDates(start, end string, calendar func(string) []int, limit int) []string {
 	a, e1 := time.Parse("2006-01-02", start)
 	b, e2 := time.Parse("2006-01-02", end)
 	if e1 != nil || e2 != nil || a.After(b) {
@@ -66,29 +42,52 @@ func workdayDates(start, end string) []string {
 	}
 	out := []string{}
 	for d := a; !d.After(b); d = d.AddDate(0, 0, 1) {
-		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-			out = append(out, d.Format("2006-01-02"))
+		date := todayStr(d)
+		var weekdays []int
+		if calendar != nil {
+			weekdays = calendar(date)
+		}
+		if isWorkday(date, weekdays) {
+			out = append(out, date)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out
 }
 
-// approverOf 审批人 = 申请人的直接上级（关系驱动，不按角色 if）。
-// 没有上级时返回空，由 HR/管理员处理（顶层领导自己也走这条路）。
+func leaveWorkdays(rec model.LeaveRequest) []string {
+	if rec.WorkDates != nil {
+		return rec.WorkDates
+	}
+	return workdayDates(rec.StartDate, rec.EndDate, nil, 0)
+}
+
+// approverOf 只为新申请选人，优先直属上级，其次部门负责人。
 func (s *Server) approverOf(ctx context.Context, uid string) (string, string) {
 	e := s.getEmployee(ctx, uid)
-	if e == nil || e.ManagerID == "" {
+	if e == nil {
 		return "", ""
 	}
-	name := e.ManagerID
-	if m := s.getEmployee(ctx, e.ManagerID); m != nil {
-		name = m.RealName
+	if e.ManagerID != "" && e.ManagerID != uid {
+		if manager := s.getEmployee(ctx, e.ManagerID); manager != nil && !manager.Disabled {
+			return manager.UserID, manager.RealName
+		}
 	}
-	return e.ManagerID, name
+	if e.DepartmentID != "" {
+		department, err := s.departmentByID(ctx, e.DepartmentID)
+		if err == nil && department.HeadID != "" && department.HeadID != uid {
+			if head := s.getEmployee(ctx, department.HeadID); head != nil && !head.Disabled {
+				return head.UserID, head.RealName
+			}
+		}
+	}
+	return "", ""
 }
 
 // canApproveRequest 审批权限：必须是这条申请指定的审批人，或 HR/管理员。
-// 不允许自批自——审批人字段在创建时就按 manager_id 定死了，前端传什么都改不了。
+// 不允许自批自，申请中已记录的审批人不随组织变更重算。
 func (s *Server) canApproveRequest(ctx context.Context, uid string, approverID string, applicantID string) bool {
 	if uid == applicantID {
 		return false
@@ -112,16 +111,19 @@ func (s *Server) applicantDisplayName(ctx context.Context, uid string) model.Emp
 
 // ==================== 请假 ====================
 
+const maxLeaveAttachments = 5
+
 // SubmitLeave 提交请假/出差申请
 func (s *Server) SubmitLeave(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
 	var req struct {
-		Type      string `json:"type"`
-		StartDate string `json:"start_date"`
-		EndDate   string `json:"end_date"`
-		Reason    string `json:"reason"`
+		Type          string   `json:"type"`
+		StartDate     string   `json:"start_date"`
+		EndDate       string   `json:"end_date"`
+		Reason        string   `json:"reason"`
+		AttachmentIDs []string `json:"attachment_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, "参数错误")
@@ -131,7 +133,17 @@ func (s *Server) SubmitLeave(c *gin.Context) {
 		fail(c, "请假类型不正确")
 		return
 	}
-	days := workdaysBetween(req.StartDate, req.EndDate)
+	uid := auth.UserID(c)
+	me := s.applicantDisplayName(ctx, uid)
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	workDates := workdayDates(req.StartDate, req.EndDate, func(date string) []int {
+		return timeline.forDay(me.DepartmentID, date).Workdays
+	}, 121)
+	days := len(workDates)
 	if days <= 0 {
 		fail(c, "起止日期不正确或不含工作日")
 		return
@@ -146,8 +158,25 @@ func (s *Server) SubmitLeave(c *gin.Context) {
 		return
 	}
 
-	uid := auth.UserID(c)
-	me := s.applicantDisplayName(ctx, uid)
+	if len(req.AttachmentIDs) > maxLeaveAttachments {
+		fail(c, fmt.Sprintf("一次申请最多上传 %d 个附件", maxLeaveAttachments))
+		return
+	}
+	attachments := make([]model.LeaveAttachment, 0, len(req.AttachmentIDs))
+	seen := make(map[string]bool, len(req.AttachmentIDs))
+	for _, id := range req.AttachmentIDs {
+		if seen[id] {
+			fail(c, "附件重复，请删除重复文件")
+			return
+		}
+		meta := s.loadFile(ctx, id)
+		if meta == nil || meta.OwnerID != uid || meta.Scope != fileScopeLeave {
+			fail(c, "附件无效，请重新上传")
+			return
+		}
+		seen[id] = true
+		attachments = append(attachments, model.LeaveAttachment{FileID: meta.ID, Name: meta.Name})
+	}
 	approverID, approverName := s.approverOf(ctx, uid)
 	now := time.Now().UnixMilli()
 	rec := model.LeaveRequest{
@@ -160,7 +189,9 @@ func (s *Server) SubmitLeave(c *gin.Context) {
 		StartDate:    req.StartDate,
 		EndDate:      req.EndDate,
 		Days:         days,
+		WorkDates:    workDates,
 		Reason:       strings.TrimSpace(req.Reason),
+		Attachments:  attachments,
 		Status:       "pending",
 		ApproverID:   approverID,
 		ApproverName: approverName,
@@ -172,38 +203,84 @@ func (s *Server) SubmitLeave(c *gin.Context) {
 		fail(c, "提交失败")
 		return
 	}
+	_ = s.notifyEvent(ctx, rec.ApproverID, "leave_pending", rec.ID, "请假待审批",
+		fmt.Sprintf("%s 申请 %s 至 %s 请假", rec.UserName, rec.StartDate, rec.EndDate),
+		approvalNotificationPath(TabPending, "leave", rec.ID))
 	ok(c, rec)
 }
 
-// LeaveList 申请列表：scope=mine 自己的 / team 下属的 / all 全公司
+func (s *Server) canReadLeaveAttachment(ctx context.Context, uid, leaveID string, meta *model.FileMeta) bool {
+	if leaveID == "" {
+		return false
+	}
+	if employee := s.getEmployee(ctx, uid); employee != nil && employee.Disabled {
+		return false
+	}
+	var rec model.LeaveRequest
+	err := s.Store.Leaves().FindOne(ctx, bson.M{
+		"company_id":          s.Cfg.CompanyID,
+		"user_id":             meta.OwnerID,
+		"leave_id":            leaveID,
+		"attachments.file_id": meta.ID,
+	}).Decode(&rec)
+	if err != nil {
+		return false
+	}
+	if uid == rec.UserID || uid == rec.ApproverID {
+		return true
+	}
+	if s.canUseScope(ctx, uid, ScopeAll) {
+		applicant := s.getEmployee(ctx, rec.UserID)
+		return applicant != nil && !applicant.Disabled
+	}
+	for _, visibleID := range s.visibleUserIDs(ctx, uid, ScopeTeam) {
+		if visibleID == rec.UserID {
+			return true
+		}
+	}
+	return false
+}
+
+const scopeAssignedAttendance = "assigned"
+
+func (s *Server) attendanceRequestFilter(ctx context.Context, uid, wantScope string) bson.M {
+	filter := bson.M{"company_id": s.Cfg.CompanyID}
+	assigned := bson.M{"approver_id": uid, "user_id": bson.M{"$ne": uid}}
+	if wantScope == scopeAssignedAttendance {
+		filter["approver_id"], filter["user_id"] = uid, assigned["user_id"]
+		return filter
+	}
+	scope, valid := s.resolveScope(ctx, uid, wantScope)
+	if !valid {
+		return nil
+	}
+	if scope == ScopeMine {
+		filter["user_id"] = uid
+		return filter
+	}
+	ids := make(bson.A, 0)
+	for _, id := range s.visibleUserIDs(ctx, uid, scope) {
+		if scope != ScopeTeam || id != uid {
+			ids = append(ids, id)
+		}
+	}
+	userFilter := bson.M{"$in": ids}
+	if scope == ScopeTeam {
+		filter["$or"] = bson.A{bson.M{"user_id": userFilter}, assigned}
+	} else {
+		filter["user_id"] = userFilter
+	}
+	return filter
+}
+
+// LeaveList 返回指定范围内的请假记录。
 func (s *Server) LeaveList(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	uid := auth.UserID(c)
-	scope, valid := s.resolveScope(ctx, uid, c.Query("scope"))
-	if !valid {
+	filter := s.attendanceRequestFilter(ctx, auth.UserID(c), c.Query("scope"))
+	if filter == nil {
 		failCode(c, 403, "无权查看该范围")
 		return
-	}
-	filter := bson.M{"company_id": s.Cfg.CompanyID}
-	if scope == ScopeMine {
-		filter["user_id"] = uid
-	} else {
-		ids := s.visibleUserIDs(ctx, uid, scope)
-		if scope == ScopeTeam {
-			filtered := make([]string, 0, len(ids))
-			for _, id := range ids {
-				if id != uid {
-					filtered = append(filtered, id)
-				}
-			}
-			ids = filtered
-		}
-		if len(ids) == 0 {
-			ok(c, gin.H{"total": 0, "list": []model.LeaveRequest{}})
-			return
-		}
-		filter["user_id"] = bson.M{"$in": ids}
 	}
 	if status := c.Query("status"); status != "" {
 		filter["status"] = status
@@ -267,14 +344,14 @@ func (s *Server) LeaveApprove(c *gin.Context) {
 	if e := s.getEmployee(ctx, uid); e != nil {
 		approverName = e.RealName
 	}
-	if _, err := s.Store.Leaves().UpdateOne(ctx,
+	if updated, err := s.Store.Leaves().UpdateOne(ctx,
 		bson.M{"company_id": s.Cfg.CompanyID, "leave_id": req.ID, "status": "pending"},
 		bson.M{"$set": bson.M{
 			"status": status, "comment": strings.TrimSpace(req.Comment),
 			"approver_id": uid, "approver_name": approverName,
 			"approved_at": time.Now().UnixMilli(), "updated_at": time.Now().UnixMilli(),
 		}},
-	); err != nil {
+	); err != nil || updated.MatchedCount == 0 {
 		fail(c, "审批失败")
 		return
 	}
@@ -284,15 +361,15 @@ func (s *Server) LeaveApprove(c *gin.Context) {
 	if status == "rejected" {
 		result = "已驳回"
 	}
-	_ = s.notify(ctx, rec.UserID, "approval",
+	_ = s.notifyEvent(ctx, rec.UserID, "approval", "leave:"+rec.ID,
 		fmt.Sprintf("请假申请%s", result),
 		fmt.Sprintf("%s 至 %s（%d 天）：%s", rec.StartDate, rec.EndDate, rec.Days, strings.TrimSpace(req.Comment)),
-		"/leave")
+		approvalNotificationPath(TabMine, "leave", rec.ID))
 
 	// 请假通过后，这段时间里已经生成的缺卡异常应该自动核销——
 	// 人本来就不用上班，再让组长去点一遍"忽略"是纯浪费。
 	if status == "approved" {
-		for _, d := range workdayDates(rec.StartDate, rec.EndDate) {
+		for _, d := range leaveWorkdays(rec) {
 			s.autoResolveException(ctx, rec.UserID, d,
 				[]string{model.ExcAbsent, model.ExcMissingOn, model.ExcMissingOff},
 				"请假审批通过，自动核销")
@@ -336,7 +413,12 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 		return
 	}
 	// 补卡限制以「考勤规则配置」为准（管理员可改），环境变量只是初始落库前的兜底
-	rule := s.currentRule()
+	uid := auth.UserID(c)
+	rule, err := s.effectiveAttendanceRule(ctx, uid)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
 	maxDays := rule.MakeupMaxDays
 	if maxDays > 0 && req.Date < todayStr(time.Now().AddDate(0, 0, -maxDays)) {
 		fail(c, fmt.Sprintf("只能补最近 %d 天的卡", maxDays))
@@ -351,7 +433,6 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 		return
 	}
 
-	uid := auth.UserID(c)
 	// 边界：同一天同一类型已有卡 → 拒绝（含现场打卡和已通过的补卡）
 	count, err := s.Store.Checkins().CountDocuments(ctx, bson.M{
 		"company_id": s.Cfg.CompanyID, "user_id": uid, "date": req.Date, "type": req.Type,
@@ -382,7 +463,7 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 		prefix := req.Date[:7]
 		cur, err := s.Store.Makeups().Find(ctx, bson.M{
 			"company_id": s.Cfg.CompanyID, "user_id": uid,
-			"date": bson.M{"$regex": "^" + prefix},
+			"date":   bson.M{"$regex": "^" + prefix},
 			"status": bson.M{"$in": []string{"pending", "approved"}},
 		})
 		if err != nil {
@@ -420,6 +501,9 @@ func (s *Server) SubmitMakeup(c *gin.Context) {
 		fail(c, "提交失败")
 		return
 	}
+	_ = s.notifyEvent(ctx, rec.ApproverID, "makeup_pending", rec.ID, "补卡待审批",
+		fmt.Sprintf("%s 提交了 %s 的补卡申请", rec.UserName, rec.Date),
+		approvalNotificationPath(TabPending, "makeup", rec.ID))
 	ok(c, rec)
 }
 
@@ -436,31 +520,10 @@ func (s *Server) countDocs(ctx context.Context, cur *mongo.Cursor) (int, error) 
 func (s *Server) MakeupList(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
-	uid := auth.UserID(c)
-	scope, valid := s.resolveScope(ctx, uid, c.Query("scope"))
-	if !valid {
+	filter := s.attendanceRequestFilter(ctx, auth.UserID(c), c.Query("scope"))
+	if filter == nil {
 		failCode(c, 403, "无权查看该范围")
 		return
-	}
-	filter := bson.M{"company_id": s.Cfg.CompanyID}
-	if scope == ScopeMine {
-		filter["user_id"] = uid
-	} else {
-		ids := s.visibleUserIDs(ctx, uid, scope)
-		if scope == ScopeTeam {
-			filtered := make([]string, 0, len(ids))
-			for _, id := range ids {
-				if id != uid {
-					filtered = append(filtered, id)
-				}
-			}
-			ids = filtered
-		}
-		if len(ids) == 0 {
-			ok(c, gin.H{"total": 0, "list": []model.MakeupRequest{}})
-			return
-		}
-		filter["user_id"] = bson.M{"$in": ids}
 	}
 	if status := c.Query("status"); status != "" {
 		filter["status"] = status
@@ -512,100 +575,64 @@ func (s *Server) MakeupApprove(c *gin.Context) {
 		failCode(c, 403, "无权审批该申请")
 		return
 	}
-	if rec.Status != "pending" {
-		fail(c, "该申请已处理")
+	if req.Action == "approve" && rec.Status == "approved" && rec.ApproverID == uid && rec.CheckinID != "" {
+		ok(c, gin.H{"status": rec.Status, "checkin_id": rec.CheckinID})
 		return
 	}
-	status := "approved"
-	if req.Action == "reject" {
-		status = "rejected"
+	if rec.Status != "pending" {
+		fail(c, errMakeupProcessed.Error())
+		return
 	}
-
+	comment := strings.TrimSpace(req.Comment)
 	approverName := uid
 	if e := s.getEmployee(ctx, uid); e != nil {
 		approverName = e.RealName
 	}
-	var checkinID string
-	if status == "approved" {
-		// 审批通过瞬间再查一次：避免"待审批期间当事人又现场打了卡"
-		n, err := s.Store.Checkins().CountDocuments(ctx, bson.M{
-			"company_id": s.Cfg.CompanyID, "user_id": rec.UserID, "date": rec.Date, "type": rec.Type,
-		})
-		if err != nil {
-			fail(c, "查询失败")
+	if req.Action == "reject" {
+		filter := s.pendingMakeupFilter(rec.ID)
+		filter["approval_claim"] = bson.M{"$exists": false}
+		now := time.Now().UnixMilli()
+		res, err := s.Store.Makeups().UpdateOne(ctx, filter, bson.M{"$set": bson.M{
+			"status": "rejected", "comment": comment, "approver_id": uid, "approver_name": approverName,
+			"approved_at": now, "updated_at": now,
+		}})
+		if err != nil || res.MatchedCount == 0 {
+			fail(c, "无法驳回，申请已处理或正在审批")
 			return
 		}
-		if n > 0 {
-			fail(c, "该时段已有打卡记录，不能重复补卡")
-			return
-		}
-		rule := s.todayRule()
-		// 补卡状态按规则如实判定：补的上班卡晚于上班时间就是迟到，不能因为"补的"就放过
-		statusText := "正常"
-		st := "normal"
-		min := parseHM(rec.Time)
-		if rec.Type == "on" && min > parseHM(rule.WorkOnTime)+rule.LateGrace {
-			st, statusText = "late", "迟到"
-		} else if rec.Type == "off" && min < parseHM(rule.WorkOffTime) {
-			st, statusText = "early", "早退"
-		}
-		checkinID = primitive.NewObjectID().Hex()
-		ts, _ := time.ParseInLocation("2006-01-02 15:04", rec.Date+" "+rec.Time, time.Local)
-		cr := model.CheckinRecord{
-			ID:          checkinID,
-			CompanyID:   s.Cfg.CompanyID,
-			UserID:      rec.UserID,
-			Date:        rec.Date,
-			Type:        rec.Type,
-			CheckinTime: ts.UnixMilli(),
-			Status:      st,
-			StatusText:  statusText,
-			Source:      "makeup",
-			MakeupID:    rec.ID,
-			CreatedAt:   time.Now().UnixMilli(),
-		}
-		if _, err := s.Store.Checkins().InsertOne(ctx, cr); err != nil {
-			fail(c, "生成打卡记录失败")
-			return
-		}
-	}
-	if _, err := s.Store.Makeups().UpdateOne(ctx,
-		bson.M{"company_id": s.Cfg.CompanyID, "makeup_id": req.ID, "status": "pending"},
-		bson.M{"$set": bson.M{
-			"status": status, "comment": strings.TrimSpace(req.Comment),
-			"approver_id": uid, "approver_name": approverName,
-			"approved_at": time.Now().UnixMilli(), "updated_at": time.Now().UnixMilli(),
-			"checkin_id": checkinID,
-		}},
-	); err != nil {
-		fail(c, "审批失败")
+		s.notifyMakeupResult(ctx, rec, "已驳回", comment)
+		ok(c, gin.H{"status": "rejected", "checkin_id": ""})
 		return
 	}
-
-	result := "已通过"
-	if status == "rejected" {
-		result = "已驳回"
-	}
-	typeText := "上班卡"
-	if rec.Type == "off" {
-		typeText = "下班卡"
-	}
-	_ = s.notify(ctx, rec.UserID, "approval",
-		fmt.Sprintf("补卡申请%s", result),
-		fmt.Sprintf("%s %s %s：%s", rec.Date, typeText, rec.Time, strings.TrimSpace(req.Comment)),
-		"/leave")
-
-	// 补卡通过 = 这一次真实上下班事实补上了，对应的缺卡异常不必再人工处理
-	if status == "approved" {
-		kinds := []string{model.ExcAbsent}
-		if rec.Type == "on" {
-			kinds = append(kinds, model.ExcMissingOn)
-		} else {
-			kinds = append(kinds, model.ExcMissingOff)
+	if rec.ApprovalClaim == nil {
+		claimed, err := s.claimMakeupApproval(ctx, rec, uid, approverName, comment)
+		if err != nil {
+			fail(c, "开始补卡审批失败，请重试")
+			return
 		}
-		s.autoResolveException(ctx, rec.UserID, rec.Date, kinds, "补卡审批通过，自动核销")
+		rec = claimed
 	}
-	ok(c, gin.H{"status": status, "checkin_id": checkinID})
+	if rec.Status == "approved" && rec.ApproverID == uid && rec.CheckinID != "" {
+		ok(c, gin.H{"status": rec.Status, "checkin_id": rec.CheckinID})
+		return
+	}
+	if rec.Status != "pending" || rec.ApprovalClaim == nil {
+		fail(c, errMakeupProcessed.Error())
+		return
+	}
+	if rec.ApprovalClaim.ActorID != uid {
+		fail(c, errMakeupClaimed.Error())
+		return
+	}
+	if err := s.completeMakeupApproval(ctx, rec); err != nil {
+		if errors.Is(err, errCheckinOccupied) || errors.Is(err, errMakeupProcessed) {
+			fail(c, err.Error())
+		} else {
+			fail(c, "补卡审批暂未完成，请重试")
+		}
+		return
+	}
+	ok(c, gin.H{"status": "approved", "checkin_id": rec.ApprovalClaim.Checkin.ID})
 }
 
 // MakeupCancel 撤销补卡申请
@@ -632,8 +659,12 @@ func (s *Server) cancelRequest(c *gin.Context, col *mongo.Collection, idField st
 		return
 	}
 	uid := auth.UserID(c)
+	filter := bson.M{"company_id": s.Cfg.CompanyID, idField: id, "user_id": uid, "status": "pending"}
+	if idField == "makeup_id" {
+		filter["approval_claim"] = bson.M{"$exists": false}
+	}
 	res, err := col.UpdateOne(ctx,
-		bson.M{"company_id": s.Cfg.CompanyID, idField: id, "user_id": uid, "status": "pending"},
+		filter,
 		bson.M{"$set": bson.M{"status": "cancelled", "updated_at": time.Now().UnixMilli()}},
 	)
 	if err != nil || res.MatchedCount == 0 {
@@ -648,13 +679,18 @@ func (s *Server) cancelRequest(c *gin.Context, col *mongo.Collection, idField st
 // approvedLeaveDays 取这些人在该月已批准的工作日请假日期，key=userID，value=日期集合。
 // 统计口径里"请假日不算缺卡、不算应出勤"就靠它。
 func (s *Server) approvedLeaveDays(ctx context.Context, ids []string, month string) map[string]map[string]bool {
+	days, _ := s.loadApprovedLeaveDays(ctx, ids, month)
+	return days
+}
+
+func (s *Server) loadApprovedLeaveDays(ctx context.Context, ids []string, month string) (map[string]map[string]bool, error) {
 	out := make(map[string]map[string]bool, len(ids))
 	if len(ids) == 0 {
-		return out
+		return out, nil
 	}
 	start, end, valid := monthRange(month)
 	if !valid {
-		return out
+		return out, nil
 	}
 	cur, err := s.Store.Leaves().Find(ctx, bson.M{
 		"company_id": s.Cfg.CompanyID,
@@ -667,14 +703,14 @@ func (s *Server) approvedLeaveDays(ctx context.Context, ids []string, month stri
 		},
 	})
 	if err != nil {
-		return out
+		return nil, err
 	}
 	var list []model.LeaveRequest
-	if cur.All(ctx, &list) != nil {
-		return out
+	if err := cur.All(ctx, &list); err != nil {
+		return nil, err
 	}
 	for _, r := range list {
-		for _, d := range workdayDates(r.StartDate, r.EndDate) {
+		for _, d := range leaveWorkdays(r) {
 			if d < start || d >= end {
 				continue
 			}
@@ -684,7 +720,7 @@ func (s *Server) approvedLeaveDays(ctx context.Context, ids []string, month stri
 			out[r.UserID][d] = true
 		}
 	}
-	return out
+	return out, nil
 }
 
 // AttendancePending 工作台/审批中心的真实待办数（复用 visibleUserIDs）

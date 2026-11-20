@@ -64,6 +64,7 @@ export type DayState =
   | "done"
   | "partial"
   | "absent"
+  | "leave"
   | "in_progress"
   | "weekend"
   | "future"
@@ -82,6 +83,8 @@ export function serverStateToDayState(s: string): DayState {
       return "partial";
     case "absent":
       return "absent";
+    case "leave":
+      return "leave";
     case "in_progress":
       return "in_progress";
     case "rest":

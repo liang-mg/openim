@@ -33,6 +33,35 @@ type LocateState =
   | { status: "ok"; data: LocateResult }
   | { status: "error"; message: string };
 
+const MAX_PHOTO_BYTES = 300 * 1024;
+const JPEG_PREFIX = "data:image/jpeg;base64,";
+
+function encodeCheckinPhoto(canvas: HTMLCanvasElement): string | undefined {
+  const smaller = document.createElement("canvas");
+  const context = smaller.getContext("2d");
+  for (const scale of [1, 0.75, 0.5, 0.35]) {
+    if (scale !== 1) {
+      if (!context) return;
+      smaller.width = Math.max(1, Math.round(canvas.width * scale));
+      smaller.height = Math.max(1, Math.round(canvas.height * scale));
+      context.drawImage(canvas, 0, 0, smaller.width, smaller.height);
+    }
+    const source = scale === 1 ? canvas : smaller;
+    for (const quality of [0.85, 0.7, 0.55]) {
+      const dataURL = source.toDataURL("image/jpeg", quality);
+      if (!dataURL.startsWith(JPEG_PREFIX)) return;
+      const padding = dataURL.endsWith("==") ? 2 : dataURL.endsWith("=") ? 1 : 0;
+      const size = ((dataURL.length - JPEG_PREFIX.length) * 3) / 4 - padding;
+      if (size > 0 && size <= MAX_PHOTO_BYTES) return dataURL;
+    }
+  }
+}
+
+function browserPlatform() {
+  const browser = navigator as Navigator & { userAgentData?: { platform?: string } };
+  return browser.userAgentData?.platform || browser.platform || undefined;
+}
+
 /** 浏览器定位失败原因翻译成人话，别直接把 DOMException 抛给用户 */
 function geoErrText(err: GeolocationPositionError) {
   if (err.code === err.PERMISSION_DENIED) {
@@ -104,17 +133,22 @@ export const Checkin = () => {
     (async () => {
       setLoading(true);
       try {
-        setToday(await getTodayCheckin());
+        const data = await getTodayCheckin();
+        setToday(data);
+        if (data.rule.need_location) requestLocation();
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : "无法获取打卡规则");
       } finally {
         setLoading(false);
       }
     })();
-    requestLocation();
     return () => streamRef.current?.getTracks().forEach((t) => t.stop());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const office = loc.status === "ok" ? loc.data.office : today?.office;
+  const needPhoto = today?.rule.need_photo ?? true;
+  const needLocation = today?.rule.need_location ?? true;
 
   const startCamera = async () => {
     try {
@@ -139,30 +173,44 @@ export const Checkin = () => {
 
   const takePhoto = () => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth) {
+    if (!video || !video.videoWidth || !video.videoHeight) {
       message.warning("摄像头尚未就绪");
       return;
     }
+    if (needLocation && loc.status !== "ok") {
+      message.warning("请先获取当前位置，再拍摄打卡照片");
+      return;
+    }
     const canvas = document.createElement("canvas");
-    const w = (canvas.width = video.videoWidth);
-    const h = (canvas.height = video.videoHeight);
+    const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+    const w = (canvas.width = Math.max(1, Math.round(video.videoWidth * scale)));
+    const h = (canvas.height = Math.max(1, Math.round(video.videoHeight * scale)));
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, w, h);
     // 水印：时间 + 姓名 + 当前位置（配了地图 key 是街道地址，没配就是经纬度）
-    const stampPlace =
-      loc.status === "ok"
-        ? loc.data.address || `${loc.data.lat.toFixed(5)},${loc.data.lng.toFixed(5)}`
-        : "";
-    const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-      now.getDate(),
-    ).padStart(2, "0")} ${fmtTime(now.getTime())}  ${selfInfo.nickname || ""}  ${stampPlace}`.trim();
+    const capturedAt = new Date();
+    const stamp = `${ymd(capturedAt)} ${fmtTime(capturedAt.getTime())}  ${
+      selfInfo.nickname || ""
+    }`.trim();
+    const stampPlace = loc.status === "ok"
+      ? loc.data.address || `${loc.data.lat.toFixed(5)},${loc.data.lng.toFixed(5)}`
+      : "";
+    const fontSize = Math.min(28, Math.max(14, Math.round(w / 32)));
+    const bandHeight = fontSize * 2 + 20;
     ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.fillRect(0, h - 56, w, 56);
+    ctx.fillRect(0, h - bandHeight, w, bandHeight);
     ctx.fillStyle = "#fff";
-    ctx.font = `${Math.max(14, Math.round(w / 26))}px sans-serif`;
-    ctx.fillText(stamp.length > 42 ? `${stamp.slice(0, 42)}…` : stamp, 16, h - 20);
-    setPhoto(canvas.toDataURL("image/jpeg", 0.8));
+    ctx.font = `${fontSize}px sans-serif`;
+    const inset = Math.min(16, Math.floor(w / 4));
+    ctx.fillText(stamp, inset, h - fontSize - 12, w - inset * 2);
+    ctx.fillText(stampPlace, inset, h - 8, w - inset * 2);
+    const compressed = encodeCheckinPhoto(canvas);
+    if (!compressed) {
+      message.error("无法生成 300 KiB 以内的打卡照片，请重新拍照");
+      return;
+    }
+    setPhoto(compressed);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     setCameraOn(false);
   };
@@ -184,11 +232,11 @@ export const Checkin = () => {
   };
 
   const doCheckin = async (type: CheckinType) => {
-    if (!photo) {
+    if (needPhoto && !photo) {
       message.warning("请先拍摄打卡照片");
       return;
     }
-    if (loc.status !== "ok") {
+    if (needLocation && loc.status !== "ok") {
       message.warning(
         loc.status === "locating" ? "正在获取定位，请稍候" : "未获取到定位，请点「重新定位」",
       );
@@ -199,9 +247,9 @@ export const Checkin = () => {
       const res = await submitCheckin({
         type,
         photo,
-        lat: loc.data.lat,
-        lng: loc.data.lng,
-        device_info: { model: "Web", ua: navigator.userAgent },
+        lat: loc.status === "ok" ? loc.data.lat : undefined,
+        lng: loc.status === "ok" ? loc.data.lng : undefined,
+        device_info: { model: browserPlatform(), ua: navigator.userAgent },
       });
       const fenceTip =
         res.fence_set && !res.in_fence ? `，超出打卡范围 ${fmtDistance(res.distance || 0)}` : "";
@@ -275,7 +323,12 @@ export const Checkin = () => {
         </>
       );
     }
-    return null;
+    return (
+      <div className={styles["location-meta"]}>
+        {needLocation ? "" : "本规则允许不提供定位 · "}
+        <a onClick={requestLocation}>获取定位</a>
+      </div>
+    );
   };
 
   return (
@@ -300,12 +353,17 @@ export const Checkin = () => {
             </div>
 
             <div className={styles["op-card"]}>
-              <div className={styles["op-card-title"]}>现场拍照</div>
+              <div className={styles["op-card-title"]}>{needPhoto ? "现场拍照" : "现场拍照（选填）"}</div>
               <div className={styles["photo-box"]}>
-                {photo ? (
+                {cameraOn ? (
+                  <video
+                    ref={videoRef}
+                    className={styles["camera-video"]}
+                    muted
+                    playsInline
+                  />
+                ) : photo ? (
                   <img src={photo} alt="打卡照片" className={styles["photo-preview"]} />
-                ) : cameraOn ? (
-                  <video ref={videoRef} className={styles["camera-video"]} muted playsInline />
                 ) : (
                   <div className={styles["photo-placeholder"]}>
                     <CameraOutlined />
@@ -352,7 +410,7 @@ export const Checkin = () => {
                 size="large"
                 block
                 loading={submitting}
-                disabled={!!today?.on}
+                disabled={!today || cameraOn || Boolean(today.on)}
                 onClick={() => doCheckin("on")}
               >
                 {today?.on ? "上班已打卡" : "提交上班卡"}
@@ -361,7 +419,7 @@ export const Checkin = () => {
                 size="large"
                 block
                 loading={submitting}
-                disabled={!!today?.off || !today?.on}
+                disabled={!today || cameraOn || Boolean(today.off) || !today.on}
                 onClick={() => doCheckin("off")}
               >
                 {today?.off ? "下班已打卡" : "提交下班卡"}

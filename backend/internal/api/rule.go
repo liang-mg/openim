@@ -13,15 +13,9 @@ import (
 	"github.com/xinbo/xinbo-oa/internal/model"
 )
 
-// 考勤规则配置（批次 3.1 / F8）
-//
-// 设计取舍：
-//   - 一家公司一套规则，不做部门级/个人级——真有需要再加，避免一上来四层优先级没人能解释清楚。
-//   - 规则只在服务端生效。前端拿到的 rule 只用于"显示几点上班"，改前端时间不影响判定。
-//   - **规则变更不回溯**：历史打卡记录的 status（迟到/早退）在写入那天就固化了，
-//     所以改规则之后看旧报表数字不会变。这是刻意的——报表是要给人签字的东西。
-
 const ruleCacheTTL = time.Minute
+
+var standardWorkdays = []int{1, 2, 3, 4, 5}
 
 // defaultRule 环境变量里的默认值，作为"库里还没配过"时的兜底。
 func (s *Server) defaultRule() model.AttendanceRule {
@@ -33,14 +27,14 @@ func (s *Server) defaultRule() model.AttendanceRule {
 		EarliestOn:     s.Cfg.EarliestOn,
 		NeedPhoto:      true,
 		NeedLocation:   true,
+		Workdays:       standardWorkdays,
 		MakeupMaxDays:  s.Cfg.MakeupMaxDays,
 		MakeupMaxMonth: s.Cfg.MakeupMaxMonth,
 		Source:         "env",
 	}
 }
 
-// currentRule 读当前生效规则：先看缓存（60 秒），再看库，最后回落环境变量。
-// 打卡、团队表、报表、异常扫描全部走这一个函数——口径只有一份。
+// currentRule provides the pre-revision baseline for old records and unconfigured companies.
 func (s *Server) currentRule() model.AttendanceRule {
 	s.ruleMu.RLock()
 	cached, at := s.ruleCache, s.ruleAt
@@ -59,7 +53,12 @@ func (s *Server) currentRule() model.AttendanceRule {
 		r = s.defaultRule()
 	} else {
 		r.Source = "db"
+		if r.Workdays == nil {
+			r.Workdays = standardWorkdays
+		}
 	}
+	office := s.officeInfo()
+	r.Office = &office
 
 	s.ruleMu.Lock()
 	s.ruleCache = &r
@@ -68,18 +67,132 @@ func (s *Server) currentRule() model.AttendanceRule {
 	return r
 }
 
-// invalidateRuleCache 保存规则后立即失效，管理员改完不用等一分钟。
-func (s *Server) invalidateRuleCache() {
-	s.ruleMu.Lock()
-	s.ruleCache = nil
-	s.ruleAt = time.Time{}
-	s.ruleMu.Unlock()
+type ruleTimeline struct {
+	legacy    model.AttendanceRule
+	revisions map[string][]model.AttendanceRule
 }
 
-// GetRule 读规则：所有登录用户都能读（页面要显示「9:05 上班」），写只能管理员。
-func (s *Server) GetRule(c *gin.Context) {
-	ok(c, s.currentRule())
+func (s *Server) attendanceRuleTimeline(ctx context.Context) (ruleTimeline, error) {
+	cur, err := s.Store.RuleRevisions().Find(ctx, bson.M{"company_id": s.Cfg.CompanyID},
+		options.Find().SetSort(bson.D{{Key: "effective_date", Value: -1}, {Key: "updated_at", Value: -1}, {Key: "_id", Value: -1}}))
+	if err != nil {
+		return ruleTimeline{}, err
+	}
+	var revisions []model.AttendanceRule
+	if err := cur.All(ctx, &revisions); err != nil {
+		return ruleTimeline{}, err
+	}
+	timeline := ruleTimeline{legacy: s.currentRule(), revisions: map[string][]model.AttendanceRule{}}
+	for _, rule := range revisions {
+		rule.Source = "db"
+		timeline.revisions[rule.DepartmentID] = append(timeline.revisions[rule.DepartmentID], rule)
+	}
+	return timeline, nil
 }
+
+func (timeline ruleTimeline) forDay(deptID, date string) model.AttendanceRule {
+	for _, scope := range []string{deptID, ""} {
+		for _, rule := range timeline.revisions[scope] {
+			if rule.EffectiveDate <= date {
+				return rule
+			}
+		}
+		if scope == "" {
+			break
+		}
+	}
+	return timeline.legacy
+}
+
+func checkinRuleOf(r model.AttendanceRule) model.CheckinRule {
+	return model.CheckinRule{
+		WorkOnTime: r.WorkOnTime, WorkOffTime: r.WorkOffTime, LateGrace: r.LateGrace,
+		EarliestOn: r.EarliestOn, NeedPhoto: r.NeedPhoto, NeedLocation: r.NeedLocation,
+		Workdays: r.Workdays,
+	}
+}
+
+func dayCheckinRule(pair *dayPair, fallback model.CheckinRule) model.CheckinRule {
+	if pair != nil {
+		for _, rec := range []*model.CheckinRecord{pair.On, pair.Off} {
+			if rec != nil && rec.RuleSnapshot != nil {
+				return checkinRuleOf(*rec.RuleSnapshot)
+			}
+		}
+	}
+	return fallback
+}
+
+func (timeline ruleTimeline) checkinCalendar(deptID, month string) map[string]model.CheckinRule {
+	out := map[string]model.CheckinRule{}
+	start, err := time.Parse("2006-01", month)
+	if err != nil {
+		return out
+	}
+	for d, end := start, start.AddDate(0, 1, 0); d.Before(end); d = d.AddDate(0, 0, 1) {
+		date := todayStr(d)
+		out[date] = checkinRuleOf(timeline.forDay(deptID, date))
+	}
+	return out
+}
+
+func isWorkday(date string, weekdays []int) bool {
+	d, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return false
+	}
+	if weekdays == nil {
+		weekdays = standardWorkdays
+	}
+	for _, day := range weekdays {
+		if day == int(d.Weekday()) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) attendanceRuleForDate(ctx context.Context, uid, date string) (model.AttendanceRule, error) {
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		return model.AttendanceRule{}, err
+	}
+	return timeline.forDay(s.employeeDepartmentID(ctx, uid), date), nil
+}
+
+func (s *Server) employeeDepartmentID(ctx context.Context, uid string) string {
+	if emp := s.getEmployee(ctx, uid); emp != nil {
+		return emp.DepartmentID
+	}
+	return ""
+}
+func (s *Server) effectiveAttendanceRule(ctx context.Context, uid string) (model.AttendanceRule, error) {
+	return s.attendanceRuleForDate(ctx, uid, todayStr(time.Now()))
+}
+
+// GetRule returns the effective rule by default. Admins can open a specific rule for editing.
+func (s *Server) GetRule(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	uid := auth.UserID(c)
+	deptID := c.Query("department_id")
+	if deptID != "" || c.Query("scope") == ScopeCompanyRule {
+		if !s.isAdmin(ctx, uid) {
+			failCode(c, 403, "无权查看该规则")
+			return
+		}
+	} else if emp := s.getEmployee(ctx, uid); emp != nil {
+		deptID = emp.DepartmentID
+	}
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	ok(c, timeline.forDay(deptID, todayStr(time.Now())))
+}
+
+const ScopeCompanyRule = "company"
 
 // SaveRule 保存规则（仅管理员）
 func (s *Server) SaveRule(c *gin.Context) {
@@ -105,12 +218,16 @@ func (s *Server) SaveRule(c *gin.Context) {
 	}
 
 	// 边界校验：时间必须是合法 HH:MM，且上班早于下班，否则一整天都会被判迟到/早退
-	if !validHM(req.WorkOnTime) || !validHM(req.WorkOffTime) {
+	if !validHM(req.WorkOnTime) || !validHM(req.WorkOffTime) || !validHM(req.EarliestOn) {
 		fail(c, "上下班时间格式不正确（HH:MM）")
 		return
 	}
 	if parseHM(req.WorkOnTime) >= parseHM(req.WorkOffTime) {
 		fail(c, "下班时间必须晚于上班时间")
+		return
+	}
+	if parseHM(req.EarliestOn) > parseHM(req.WorkOnTime) {
+		fail(c, "最早打卡时间不能晚于上班时间")
 		return
 	}
 	if req.LateGrace < 0 || req.LateGrace > 120 {
@@ -126,19 +243,46 @@ func (s *Server) SaveRule(c *gin.Context) {
 		return
 	}
 
-	req.CompanyID = s.Cfg.CompanyID
-	req.UpdatedBy = uid
-	req.UpdatedAt = time.Now().UnixMilli()
-
-	if _, err := s.Store.Rules().UpdateOne(ctx,
-		bson.M{"company_id": s.Cfg.CompanyID},
-		bson.M{"$set": req},
-		options.Update().SetUpsert(true),
-	); err != nil {
+	if req.DepartmentID != "" {
+		if err := s.Store.Departments().FindOne(ctx, bson.M{
+			"company_id": s.Cfg.CompanyID, "department_id": req.DepartmentID,
+		}).Err(); err != nil {
+			fail(c, "部门不存在")
+			return
+		}
+	}
+	timeline, err := s.attendanceRuleTimeline(ctx)
+	if err != nil {
+		fail(c, "查询考勤规则失败")
+		return
+	}
+	now := time.Now()
+	date := todayStr(now)
+	previous := timeline.forDay(req.DepartmentID, date)
+	if req.Workdays == nil {
+		req.Workdays = previous.Workdays
+	}
+	seen := [7]bool{}
+	for _, day := range req.Workdays {
+		if day < 0 || day >= len(seen) || seen[day] {
+			fail(c, "工作日配置无效")
+			return
+		}
+		seen[day] = true
+	}
+	if req.Office == nil {
+		req.Office = previous.Office
+	}
+	if req.Office != nil && req.Office.Configured &&
+		(!validCoord(req.Office.Lat, req.Office.Lng) || req.Office.Radius <= 0) {
+		fail(c, "请设置有效的打卡点坐标和半径")
+		return
+	}
+	req.CompanyID, req.UpdatedBy, req.UpdatedAt, req.EffectiveDate = s.Cfg.CompanyID, uid, now.UnixMilli(), date
+	if _, err := s.Store.RuleRevisions().InsertOne(ctx, req); err != nil {
 		fail(c, "保存失败")
 		return
 	}
-	s.invalidateRuleCache()
 	req.Source = "db"
 	ok(c, req)
 }

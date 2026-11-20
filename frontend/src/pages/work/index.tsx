@@ -1,8 +1,10 @@
 import {
   AuditOutlined,
+  BellOutlined,
   CalendarOutlined,
   CameraOutlined,
   ClockCircleOutlined,
+  DashboardOutlined,
   FileTextOutlined,
   VideoCameraOutlined,
 } from "@ant-design/icons";
@@ -13,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 
 import OIMAvatar from "@/components/OIMAvatar";
 import {
+  getMe,
   getWorkbenchSummary,
   type WorkbenchCheckin,
   type WorkbenchReport,
@@ -30,6 +33,7 @@ const WORK_APPS = [
   { key: "leave", name: "请假补卡", icon: <CalendarOutlined />, path: "/leave" },
   { key: "meeting", name: "线上会议", icon: <VideoCameraOutlined />, path: "" },
   { key: "approval", name: "审批中心", icon: <AuditOutlined />, path: "/approvals" },
+  { key: "notice", name: "通知", icon: <BellOutlined />, path: "/notifications" },
   { key: "calendar", name: "工作日历", icon: <CalendarOutlined />, path: "" },
 ];
 
@@ -60,9 +64,17 @@ export const Work = () => {
   const [todos, setTodos] = useState<WorkbenchTodo[]>([]);
   const [checkin, setCheckin] = useState<WorkbenchCheckin>(EMPTY_CHECKIN);
   const [report, setReport] = useState<WorkbenchReport>(EMPTY_REPORT);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const apps = showDashboard ? [
+    ...WORK_APPS,
+    { key: "dashboard", name: "管理看板", icon: <DashboardOutlined />, path: "/management-dashboard" },
+  ] : WORK_APPS;
 
   useEffect(() => {
     let alive = true;
+    void getMe().then((identity) => {
+      if (alive) setShowDashboard(!identity.disabled && !!(identity.can_view_team || identity.can_view_all));
+    }).catch(() => {});
     (async () => {
       try {
         const data: WorkbenchSummary = await getWorkbenchSummary();
@@ -82,7 +94,7 @@ export const Work = () => {
 
   const openApp = (key: string, name: string) => {
     setSelected(key);
-    const app = WORK_APPS.find((a) => a.key === key);
+    const app = apps.find((a) => a.key === key);
     if (app?.path) {
       navigate(app.path);
       return;
@@ -181,7 +193,7 @@ export const Work = () => {
             <div className={styles["apps-card"]}>
               <div className={styles["apps-title"]}>常用应用</div>
               <div className={styles["apps-grid"]}>
-                {WORK_APPS.map((app) => (
+                {apps.map((app) => (
                   <div
                     key={app.key}
                     className={clsx(styles["app-item"], {

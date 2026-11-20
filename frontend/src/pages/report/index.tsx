@@ -43,7 +43,7 @@ const ALLOWED_EXT = ["jpg", "jpeg", "png", "gif", "webp", "pdf", "doc", "docx", 
 const statusMeta: Record<ReportStatus, { text: string; cls: string }> = {
   draft: { text: "草稿", cls: "draft" },
   submitted: { text: "待查阅", cls: "submitted" },
-  pending_leader: { text: "待领导查阅", cls: "pending" },
+  pending_leader: { text: "待终审", cls: "pending" },
   archived: { text: "已归档", cls: "archived" },
 };
 
@@ -344,10 +344,10 @@ export const Report = () => {
                   <span className={styles["locked-dot"]} />
                   <span>
                     {current.status === "submitted" &&
-                      "日报已提交，等待组长查阅；提交后 2 小时内可在右侧撤回修改。"}
+                      "日报已提交，等待直属上级点评。提交后 2 小时内可在右侧撤回修改。"}
                     {current.status === "pending_leader" &&
-                      "组长已点评并上报领导，正在等待领导查阅，内容不可再修改。"}
-                    {current.status === "archived" && "领导已归档，该日报内容已锁定，不可修改。"}
+                      "直属上级已点评并上报，正在等待终审。"}
+                    {current.status === "archived" && "日报已归档，内容已锁定。"}
                   </span>
                 </div>
               )}

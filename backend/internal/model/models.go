@@ -14,6 +14,8 @@ type FileMeta struct {
 	ObjectKey string `json:"-" bson:"object_key"`
 	Scope     string `json:"scope" bson:"scope"` // report / checkin / other
 	CreatedAt int64  `json:"created_at" bson:"created_at"`
+
+	ContractEmployeeID string `json:"-" bson:"contract_employee_id,omitempty"`
 }
 
 // ============ 打卡 ============
@@ -41,9 +43,10 @@ type CheckinRecord struct {
 	StatusText string `json:"status_text" bson:"status_text"`
 	// Source 标明记录来源：normal=现场打卡 / makeup=补卡审批通过后生成。
 	// 前端可据此显示"补卡"小标，但统计上都算一次真实出勤。
-	Source    string `json:"source" bson:"source"`
-	MakeupID  string `json:"makeup_id,omitempty" bson:"makeup_id,omitempty"`
-	CreatedAt int64  `json:"created_at" bson:"created_at"`
+	Source       string          `json:"source" bson:"source"`
+	MakeupID     string          `json:"makeup_id,omitempty" bson:"makeup_id,omitempty"`
+	CreatedAt    int64           `json:"created_at" bson:"created_at"`
+	RuleSnapshot *AttendanceRule `json:"rule_snapshot,omitempty" bson:"rule_snapshot,omitempty"`
 }
 
 // CheckinRule 作息规则，全部由服务端下发，前端只用于展示「几点上班」。
@@ -59,18 +62,19 @@ type CheckinRule struct {
 	EarliestOn   string `json:"earliest_on"`
 	NeedPhoto    bool   `json:"need_photo"`
 	NeedLocation bool   `json:"need_location"`
+	Workdays     []int  `json:"workdays"`
 }
 
 // OfficeInfo 打卡点，下发给前端用于展示「距离多少米」；
 // 坐标只用于判定，不做地图渲染。Configured=false 表示还没有配打卡点。
 type OfficeInfo struct {
-	Name       string  `json:"name"`
-	Address    string  `json:"address"`
-	Lat        float64 `json:"lat"`
-	Lng        float64 `json:"lng"`
-	Radius     int     `json:"radius"`
-	Strict     bool    `json:"strict"`
-	Configured bool    `json:"configured"`
+	Name       string  `json:"name" bson:"name"`
+	Address    string  `json:"address" bson:"address"`
+	Lat        float64 `json:"lat" bson:"lat"`
+	Lng        float64 `json:"lng" bson:"lng"`
+	Radius     int     `json:"radius" bson:"radius"`
+	Strict     bool    `json:"strict" bson:"strict"`
+	Configured bool    `json:"configured" bson:"configured"`
 }
 
 // LocateResult 定位结果：坐标 + 可读地址 + 距打卡点距离
@@ -152,6 +156,8 @@ type TeamCheckinResult struct {
 
 // ReportRow 出勤报表的一行（一个人）。
 type ReportRow struct {
+	Makeup     int    `json:"makeup"`
+	Exceptions int    `json:"exceptions"`
 	UserID     string `json:"user_id"`
 	Name       string `json:"name"`
 	Department string `json:"department"`
@@ -181,9 +187,15 @@ type AttendanceReport struct {
 
 // ============ 请假 / 补卡 ============
 
+type LeaveAttachment struct {
+	FileID string `json:"file_id" bson:"file_id"`
+	Name   string `json:"name" bson:"name"`
+}
+
 // LeaveRequest 请假/出差申请：不可变记录，只改 status 不改内容。
 // 批准不写 oa_checkin（请假日不是"打了卡"），只影响考勤统计口径。
 type LeaveRequest struct {
+	WorkDates []string `json:"-" bson:"work_dates,omitempty"`
 	ID          string `json:"leave_id" bson:"leave_id"`
 	CompanyID   string `json:"-" bson:"company_id"`
 	UserID      string `json:"user_id" bson:"user_id"`
@@ -202,6 +214,8 @@ type LeaveRequest struct {
 	ApprovedAt  int64  `json:"approved_at" bson:"approved_at"`
 	CreatedAt   int64  `json:"created_at" bson:"created_at"`
 	UpdatedAt   int64  `json:"updated_at" bson:"updated_at"`
+
+	Attachments []LeaveAttachment `json:"attachments,omitempty" bson:"attachments,omitempty"`
 }
 
 // MakeupRequest 补卡申请：批准后生成 source=makeup 的 oa_checkin 记录。
@@ -224,6 +238,8 @@ type MakeupRequest struct {
 	ApprovedAt   int64  `json:"approved_at" bson:"approved_at"`
 	CreatedAt    int64  `json:"created_at" bson:"created_at"`
 	UpdatedAt    int64  `json:"updated_at" bson:"updated_at"`
+
+	ApprovalClaim *MakeupApprovalClaim `json:"-" bson:"approval_claim,omitempty"`
 }
 
 // LeaveDay 某人某月的请假日（已批准），给统计口径用
@@ -311,8 +327,7 @@ type ScanResult struct {
 
 // ============ 考勤规则（可配置，覆盖环境变量默认值） ============
 
-// AttendanceRule 全公司一套作息。部门级/个人级等真有需要再加，避免一上来就做成四层。
-// 没有记录时后端回落环境变量（09:05 / 18:00），不会因为缺数据起不来。
+// AttendanceRule 保存公司或部门的生效规则，无部门规则时使用公司规则。
 type AttendanceRule struct {
 	CompanyID    string `json:"-" bson:"company_id"`
 	WorkOnTime   string `json:"work_on_time" bson:"work_on_time"`
@@ -321,6 +336,10 @@ type AttendanceRule struct {
 	EarliestOn   string `json:"earliest_on" bson:"earliest_on"`
 	NeedPhoto    bool   `json:"need_photo" bson:"need_photo"`
 	NeedLocation bool   `json:"need_location" bson:"need_location"`
+	DepartmentID string `json:"department_id,omitempty" bson:"department_id"`
+	EffectiveDate string `json:"effective_date,omitempty" bson:"effective_date"`
+	Workdays []int `json:"workdays" bson:"workdays"`
+	Office *OfficeInfo `json:"office,omitempty" bson:"office,omitempty"`
 	// MakeupMaxDays / MakeupMaxMonth 补卡限制，0 表示不限
 	MakeupMaxDays  int    `json:"makeup_max_days" bson:"makeup_max_days"`
 	MakeupMaxMonth int    `json:"makeup_max_month" bson:"makeup_max_month"`
@@ -367,6 +386,7 @@ type SubmitRateRow struct {
 
 type SubmitRateResult struct {
 	Date  string          `json:"date"`
+	Today string          `json:"today"`
 	Scope string          `json:"scope"`
 	Total int             `json:"total"`
 	Done  int             `json:"done"`
@@ -389,6 +409,7 @@ type Notification struct {
 	Read      bool   `json:"read" bson:"read"`
 	CreatedAt int64  `json:"created_at" bson:"created_at"`
 	ReadAt    int64  `json:"read_at,omitempty" bson:"read_at,omitempty"`
+	IMStatus  string `json:"im_status,omitempty" bson:"im_status,omitempty"`
 }
 
 // ============ 日报 ============
@@ -413,6 +434,7 @@ type ReportAuthor struct {
 }
 
 type ReviewInfo struct {
+	ReviewerID   string `json:"reviewer_id,omitempty" bson:"reviewer_id,omitempty"`
 	ReviewerName string `json:"reviewer_name" bson:"reviewer_name"`
 	Role         string `json:"role" bson:"role"` // manager / leader
 	Comment      string `json:"comment" bson:"comment"`
@@ -454,6 +476,7 @@ type Employee struct {
 	UserID     string `json:"user_id" bson:"user_id"`
 	RealName   string `json:"real_name" bson:"real_name"`
 	Department string `json:"department" bson:"department"`
+	DepartmentID string `json:"department_id,omitempty" bson:"department_id,omitempty"`
 	Position   string `json:"position" bson:"position"`
 	ManagerID  string `json:"manager_id" bson:"manager_id"`
 	Role       string `json:"role" bson:"role"`
@@ -465,6 +488,7 @@ type Employee struct {
 	SubordinateCount int  `json:"subordinate_count" bson:"-"`
 	CanViewTeam      bool `json:"can_view_team" bson:"-"`
 	CanViewAll       bool `json:"can_view_all" bson:"-"`
+	CanReviewAttendance bool `json:"can_review_attendance" bson:"-"`
 }
 
 // EmployeeView 管理页列表用，附带 IM 侧的手机号与昵称，省一次关联查询。

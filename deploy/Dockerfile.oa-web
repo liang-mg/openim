@@ -1,0 +1,18 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+COPY package.json pnpm-lock.yaml .npmrc ./
+COPY patches/ ./patches/
+# This build targets the browser and needs only the Web build tools' native modules.
+RUN node -e "const fs=require('fs'); const manifest=JSON.parse(fs.readFileSync('package.json','utf8')); manifest.pnpm.onlyBuiltDependencies=['@parcel/watcher','esbuild']; fs.writeFileSync('package.json',JSON.stringify(manifest));"
+RUN pnpm install --frozen-lockfile
+COPY . .
+RUN printf 'VITE_BASE_HOST=127.0.0.1\nVITE_WS_URL=/msg_gateway\nVITE_API_URL=/api\nVITE_CHAT_URL=/chat\n' > .env.local
+RUN pnpm exec vite build --config vite.web.config.ts
+
+FROM nginx:1.25-alpine
+RUN apk add --no-cache tzdata && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx/site.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

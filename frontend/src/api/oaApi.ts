@@ -18,6 +18,7 @@ export type CheckinType = "on" | "off";
 export type CheckinStatus = "normal" | "late" | "early" | "location_abnormal" | "makeup";
 
 export interface CheckinRecord {
+  rule_snapshot?: AttendanceRule;
   checkin_id: string;
   checkin_time: number;
   date: string;
@@ -70,6 +71,7 @@ export interface TodayCheckin {
 
 /** 作息规则：上班时间之后打上班卡算迟到，下班时间之前打下班卡算早退 */
 export interface CheckinRule {
+  workdays?: number[];
   /** 上班时间，默认 09:05 */
   work_on_time: string;
   /** 下班时间，默认 18:00 */
@@ -84,7 +86,7 @@ export interface CheckinRule {
 export type DataScope = "mine" | "team" | "all";
 
 /** 某人某天的状态：in_progress 已上班未下班（不算缺卡）*/
-export type DayStateCode = "done" | "partial" | "absent" | "in_progress" | "rest" | "not_yet";
+export type DayStateCode = "done" | "partial" | "absent" | "leave" | "in_progress" | "rest" | "not_yet";
 
 export interface DayStatus {
   state: DayStateCode;
@@ -134,6 +136,9 @@ export interface TeamCheckinResult {
 }
 
 export interface ReportRow {
+  leave: number;
+  makeup: number;
+  exceptions: number;
   user_id: string;
   name: string;
   department: string;
@@ -160,6 +165,8 @@ export interface AttendanceReport {
 }
 
 export interface MemberCheckin {
+  rules_by_date?: Record<string, CheckinRule>;
+  approved_leave_days?: Record<string, boolean> | null;
   user: OaIdentity;
   month: string;
   total: number;
@@ -178,7 +185,7 @@ export interface SubmitCheckinParams {
 }
 
 export type ReportType = "daily" | "weekly" | "monthly";
-/** draft 草稿 · submitted 待组长查阅 · pending_leader 待领导查阅 · archived 已归档 */
+/** draft 草稿 · submitted 待直属上级点评 · pending_leader 待终审 · archived 已归档 */
 export type ReportStatus = "draft" | "submitted" | "pending_leader" | "archived";
 
 export interface ReportContent {
@@ -188,6 +195,7 @@ export interface ReportContent {
 }
 
 export interface ReviewInfo {
+  reviewer_id?: string;
   reviewer_name: string;
   role: "leader" | "manager";
   comment: string;
@@ -217,6 +225,7 @@ export interface ReportRecord {
   submit_time?: number;
   author: ReportAuthor;
   reviews: ReviewInfo[];
+  review_actions?: { can_comment: boolean; can_escalate: boolean; can_archive: boolean };
 }
 
 export interface ReportOverview {
@@ -235,16 +244,17 @@ export interface SubmitReportParams {
   status: "draft" | "submitted";
 }
 
-/** 审阅视角：manager 组长 · leader 领导 */
+/** 审阅阶段：manager 直属上级 · leader 终审 */
 export type ReviewView = "manager" | "leader";
 
 export type OaRole = "employee" | "manager" | "leader" | "hr" | "admin";
 
-/** 当前登录人的 OA 身份，前端据此决定显示组长还是领导视角 */
+/** 当前登录人的 OA 身份 */
 export interface OaIdentity {
   user_id: string;
   real_name: string;
   department: string;
+  department_id?: string;
   position: string;
   manager_id: string;
   role: OaRole;
@@ -258,6 +268,47 @@ export interface OaIdentity {
   can_view_team?: boolean;
   /** 是否能看到全公司（HR / 管理员） */
   can_view_all?: boolean;
+  can_review_attendance?: boolean;
+}
+
+export interface DepartmentOption {
+  department_id: string;
+  name: string;
+  parent_id: string;
+}
+
+export interface Department extends DepartmentOption {
+  head_id: string;
+}
+
+export interface DepartmentList {
+  list: Department[];
+  unlinked: { name: string; count: number }[];
+}
+
+export interface OperationAudit {
+  audit_id: string;
+  actor_id: string;
+  occurred_at: number;
+  action: string;
+  target_id: string;
+  result: string;
+  changes?: { field: string; before?: string | number | boolean; after?: string | number | boolean }[];
+}
+
+export interface ContractAttachment {
+  file_id: string;
+  name: string;
+}
+
+export interface EmployeeContract {
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  attachments?: ContractAttachment[];
+  updated_by: string;
+  updated_at: number;
+  status: "upcoming" | "active" | "expiring" | "expired";
 }
 
 /** 员工管理页的列表项，比 OaIdentity 多带 IM 侧的手机号 */
@@ -270,6 +321,11 @@ export interface EmployeeView extends OaIdentity {
 export type LeaveType = "personal" | "sick" | "annual" | "compoff" | "business";
 export type RequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 
+export interface LeaveAttachment {
+  file_id: string;
+  name: string;
+}
+
 export interface LeaveRequest {
   leave_id: string;
   user_id: string;
@@ -280,6 +336,7 @@ export interface LeaveRequest {
   end_date: string;
   days: number;
   reason: string;
+  attachments?: LeaveAttachment[];
   status: RequestStatus;
   approver_id: string;
   approver_name: string;
@@ -371,6 +428,7 @@ export interface SaveEmployeeParams {
   user_id: string;
   real_name: string;
   department: string;
+  department_id?: string;
   position?: string;
   role: OaRole;
   manager_id?: string;
@@ -436,18 +494,19 @@ export interface UploadedFile {
   mime: string;
   /** 规范地址（需带 token 才能下），存进日报附件用这个 */
   url: string;
-  /** 30 分钟有效的签名地址，可直接给 img/a 用 */
-  signed_url: string;
+  /** 支持签名访问的文件会返回 30 分钟有效的地址 */
+  signed_url?: string;
 }
 
 /**
  * 上传附件。走后端统一文件服务（MinIO），返回的 url 才是永久可用的，
  * 之前用 URL.createObjectURL 得到的 blob 地址刷新即失效，领导点下载会 404。
  */
-export async function uploadFile(file: File, scope = "report"): Promise<UploadedFile> {
+export async function uploadFile(file: File, scope = "report", contractEmployeeId?: string): Promise<UploadedFile> {
   const form = new FormData();
   form.append("file", file);
   form.append("scope", scope);
+  if (contractEmployeeId) form.append("contract_employee_id", contractEmployeeId);
   return http.post("/files/upload", form, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 60000,
@@ -489,8 +548,12 @@ export async function getCheckinList(
   month: string,
   page = 1,
   pageSize = 30,
-): Promise<{ total: number; list: CheckinRecord[]; month: string; rule: CheckinRule }> {
-  return get<{ total: number; list: CheckinRecord[]; month: string; rule: CheckinRule }>(
+): Promise<{
+  total: number; list: CheckinRecord[]; month: string; rule: CheckinRule;
+  rules_by_date?: Record<string, CheckinRule>;
+  approved_leave_days?: Record<string, boolean> | null;
+}> {
+  return get(
     "/checkin/list",
     { month, page, page_size: pageSize },
   );
@@ -505,12 +568,14 @@ export async function getTeamCheckin(params: {
   scope?: DataScope;
   date?: string;
   onlyException?: boolean;
+  departmentId?: string;
 }): Promise<TeamCheckinResult> {
   const data = await get<TeamCheckinResult>("/checkin/team", {
     month: params.month,
     scope: params.scope || undefined,
     date: params.date || undefined,
     only_exception: params.onlyException ? 1 : undefined,
+    department_id: params.departmentId,
   });
   return { ...data, members: data.members || [], warnings: data.warnings || [] };
 }
@@ -528,32 +593,43 @@ export async function getMemberCheckin(
 export async function getAttendanceReport(params: {
   month: string;
   scope?: DataScope;
+  departmentId?: string;
 }): Promise<AttendanceReport> {
   const data = await get<AttendanceReport>("/checkin/report", {
     month: params.month,
     scope: params.scope || undefined,
+    department_id: params.departmentId,
   });
   return { ...data, rows: data.rows || [], warnings: data.warnings || [] };
 }
 
 /**
- * 导出出勤报表 CSV。
+ * 导出出勤报表。
  * 不能用 window.open：下载要带 token 头，只能走一次带鉴权的请求再存成文件。
  * 服务端已经写了 UTF-8 BOM，Excel 打开中文不会乱码。
  */
-export async function downloadAttendanceCsv(month: string, scope?: DataScope): Promise<void> {
+export async function downloadAttendanceReport(
+  month: string,
+  format: "csv" | "xlsx",
+  scope?: DataScope,
+  departmentId?: string,
+): Promise<void> {
   const token = await getChatToken();
   const res = await axios.get(`${resolveServerURLs().oaApi}/checkin/report`, {
-    params: { month, scope: scope || undefined, format: "csv" },
+    params: { month, scope, format, department_id: departmentId },
     headers: { token: String(token ?? "") },
     responseType: "blob",
     timeout: 60000,
   });
-  const blob = new Blob([res.data as BlobPart], { type: "text/csv;charset=utf-8" });
+  const blob = res.data as Blob;
+  if (blob.type.includes("application/json")) {
+    const error = JSON.parse(await blob.text()) as { message?: string; msg?: string };
+    throw new Error(error.message || error.msg || "导出失败");
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `出勤报表_${month}.csv`;
+  a.download = `出勤报表_${month}.${format}`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -580,7 +656,7 @@ export async function withdrawReport(reportId: string): Promise<void> {
   await post("/report/withdraw", { report_id: reportId });
 }
 
-/** 组长 / 领导待查阅列表（服务端按汇报链过滤，越权拿不到） */
+/** 待查阅列表（服务端按阶段和汇报链过滤） */
 export async function getReviewList(
   view: ReviewView,
 ): Promise<{ total: number; list: ReportRecord[] }> {
@@ -588,9 +664,9 @@ export async function getReviewList(
   return { total: data.total, list: (data.list || []).map(normalizeReport) };
 }
 
-/** 查阅页：本团队待领导查阅 + 已归档 */
-export async function getAllReportsForReview(): Promise<ReportRecord[]> {
-  const list = await get<ReportRecord[]>("/report/all-for-review");
+/** 查阅页的待处理与已归档报告 */
+export async function getAllReportsForReview(reportId?: string): Promise<ReportRecord[]> {
+  const list = await get<ReportRecord[]>("/report/all-for-review", { report_id: reportId });
   return (list || []).map(normalizeReport);
 }
 
@@ -598,21 +674,72 @@ export async function submitReview(
   reportId: string,
   comment: string,
   view: ReviewView,
+  complete = false,
 ): Promise<ReviewInfo> {
-  return post<ReviewInfo>("/report/review", { report_id: reportId, comment, view });
+  return post<ReviewInfo>("/report/review", { report_id: reportId, comment, view, complete });
 }
 
-/** 组长上报领导：待组长查阅 → 待领导查阅 */
+/** 直属上级上报终审 */
 export async function escalateReport(reportId: string): Promise<void> {
   await post("/report/escalate", { report_id: reportId });
 }
 
-/** 领导归档 */
+/** 终审归档 */
 export async function archiveReport(reportId: string): Promise<void> {
   await post("/report/archive", { report_id: reportId });
 }
 
 // ===================== 员工与权限管理（仅管理员） =====================
+
+export async function getVisibleDepartments(scope: DataScope): Promise<DepartmentOption[]> {
+  const { list } = await get<{ list: DepartmentOption[] }>("/organization/departments", { scope });
+  return list;
+}
+
+export async function getDepartments(): Promise<DepartmentList> {
+  return get<DepartmentList>("/admin/departments");
+}
+
+export async function getOperationAudit(params: {
+  actor_id?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+}): Promise<{ total: number; page_size: number; list: OperationAudit[] }> {
+  return get("/admin/audit", params);
+}
+
+export async function getEmployeeContract(employeeId: string): Promise<EmployeeContract | null> {
+  return get("/admin/contract", { employee_id: employeeId });
+}
+
+export async function saveEmployeeContract(params: {
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  updated_at: number;
+  attachment_ids: string[];
+}): Promise<EmployeeContract> {
+  return post("/admin/contract/save", params);
+}
+
+export async function downloadContractAttachment(employeeId: string, fileId: string): Promise<Blob> {
+  return downloadRecordFile(fileId, { contract_employee_id: employeeId });
+}
+
+export async function saveDepartment(params: {
+  department_id?: string;
+  name?: string;
+  parent_id?: string;
+  head_id?: string;
+}): Promise<Department> {
+  return post<Department>("/admin/department/save", params);
+}
+
+export async function migrateDepartment(legacyName: string, departmentId: string): Promise<{ linked: number }> {
+  return post("/admin/department/migrate", { legacy_name: legacyName, department_id: departmentId });
+}
 
 export async function getEmployeeList(params?: {
   keyword?: string;
@@ -645,13 +772,28 @@ export async function setEmployeeDisabled(userId: string, disabled: boolean): Pr
 // ===================== 请假 / 补卡 =====================
 
 export async function submitLeave(params: {
-  type: LeaveType; start_date: string; end_date: string; reason: string;
+  type: LeaveType; start_date: string; end_date: string; reason: string; attachment_ids?: string[];
 }): Promise<LeaveRequest> {
   return post<LeaveRequest>("/leave/submit", params);
 }
 
+export async function downloadLeaveAttachment(leaveId: string, fileId: string): Promise<Blob> {
+  return downloadRecordFile(fileId, { leave_id: leaveId });
+}
+
+async function downloadRecordFile(fileId: string, params: Record<string, string>): Promise<Blob> {
+  const token = await getChatToken();
+  const { data } = await axios.get<Blob>(`/oa/api/v1/files/${encodeURIComponent(fileId)}`, {
+    params,
+    headers: { token: typeof token === "string" ? token : "" },
+    responseType: "blob",
+    timeout: 30000,
+  });
+  return data;
+}
+
 export async function getLeaveList(params?: {
-  scope?: DataScope; status?: RequestStatus;
+  scope?: DataScope | "assigned"; status?: RequestStatus;
 }): Promise<{ total: number; list: LeaveRequest[] }> {
   const q: Record<string, string> = {};
   if (params?.scope) q.scope = params.scope;
@@ -676,7 +818,7 @@ export async function submitMakeup(params: {
 }
 
 export async function getMakeupList(params?: {
-  scope?: DataScope; status?: RequestStatus;
+  scope?: DataScope | "assigned"; status?: RequestStatus;
 }): Promise<{ total: number; list: MakeupRequest[] }> {
   const q: Record<string, string> = {};
   if (params?.scope) q.scope = params.scope;
@@ -702,6 +844,10 @@ export async function getAttendancePending(scope?: DataScope): Promise<Attendanc
 // ===================== 考勤规则 =====================
 
 export interface AttendanceRule {
+  department_id?: string;
+  effective_date?: string;
+  workdays?: number[];
+  office?: OfficeInfo;
   work_on_time: string;
   work_off_time: string;
   late_grace: number;
@@ -716,8 +862,8 @@ export interface AttendanceRule {
   source: "db" | "env";
 }
 
-export async function getAttendanceRule(): Promise<AttendanceRule> {
-  return get<AttendanceRule>("/attendance/rule");
+export async function getAttendanceRule(options?: { scope?: "company"; department_id?: string }): Promise<AttendanceRule> {
+  return get<AttendanceRule>("/attendance/rule", options);
 }
 
 export async function saveAttendanceRule(rule: Omit<AttendanceRule, "source" | "updated_at">) {
@@ -828,11 +974,14 @@ export interface ApprovalListResult {
 }
 
 export async function getApprovalList(params?: {
-  tab?: ApprovalTab; kind?: ApprovalKind;
+  tab?: ApprovalTab; kind?: ApprovalKind; status?: "pending"; scope?: DataScope; departmentId?: string;
 }): Promise<ApprovalListResult> {
   const q: Record<string, string> = {};
   if (params?.tab) q.tab = params.tab;
   if (params?.kind) q.kind = params.kind;
+  if (params?.status) q.status = params.status;
+  if (params?.scope) q.scope = params.scope;
+  if (params?.departmentId) q.department_id = params.departmentId;
   return get<ApprovalListResult>("/approvals/list", q);
 }
 
@@ -846,6 +995,7 @@ export interface SubmitRateRow {
 
 export interface SubmitRateResult {
   date: string;
+  today: string;
   scope: DataScope;
   total: number;
   done: number;
@@ -854,20 +1004,47 @@ export interface SubmitRateResult {
 }
 
 export async function getSubmitRate(params?: {
-  date?: string; scope?: DataScope;
+  date?: string; scope?: DataScope; departmentId?: string;
 }): Promise<SubmitRateResult> {
   const q: Record<string, string> = {};
   if (params?.date) q.date = params.date;
   if (params?.scope) q.scope = params.scope;
+  if (params?.departmentId) q.department_id = params.departmentId;
   return get<SubmitRateResult>("/report/submit-rate", q);
 }
 
-export async function urgeReports(date: string): Promise<{
-  urged: number; skipped: number; pushed: boolean;
-}> {
-  return post("/report/urge", { date }) as Promise<{
-    urged: number; skipped: number; pushed: boolean;
-  }>;
+export interface ManagementDashboardResult {
+  date: string;
+  month: string;
+  scope: DataScope;
+  attendance: ReportRow;
+  reports: { done: number; total: number; rate: number };
+  approvals: number;
+  exceptions: number;
+  daily_trend: { date: string; count: number }[];
+}
+
+export async function getManagementDashboard(
+  date: string,
+  scope: DataScope,
+  departmentId?: string,
+): Promise<ManagementDashboardResult> {
+  return get<ManagementDashboardResult>("/management/dashboard", { date, scope, department_id: departmentId });
+}
+
+export interface UrgeReportResult {
+  urged: number;
+  skipped: number;
+  failed: number;
+  pushed: boolean;
+  im_succeeded: number;
+  im_failed: number;
+  im_not_configured: number;
+}
+
+export async function urgeReports(date: string, scope?: DataScope): Promise<UrgeReportResult> {
+  const path = scope ? `/report/urge?scope=${encodeURIComponent(scope)}` : "/report/urge";
+  return post<UrgeReportResult>(path, { date });
 }
 
 // ===================== 通知 =====================
@@ -881,6 +1058,7 @@ export interface OaNotification {
   path: string;
   read: boolean;
   created_at: number;
+  im_status?: "pending" | "succeeded" | "failed" | "not_configured";
 }
 
 export async function getNotifications(all = false): Promise<{
@@ -891,6 +1069,55 @@ export async function getNotifications(all = false): Promise<{
 
 export async function readNotifications(id?: string): Promise<{ updated: number }> {
   return post("/notifications/read", id ? { notification_id: id } : { all: true });
+}
+
+export interface Announcement {
+  announcement_id: string;
+  title: string;
+  content?: string;
+  scope: "company" | "department";
+  department_id?: string;
+  department_name?: string;
+  publisher_name: string;
+  published_at: number;
+}
+
+export interface AnnouncementSummary extends Announcement {
+  recipient_count: number;
+  read_count: number;
+}
+
+export interface AnnouncementRecipient {
+  user_id: string;
+  name: string;
+  read_at?: number;
+}
+
+export type AnnouncementReceipts = AnnouncementSummary & { recipients: AnnouncementRecipient[] };
+
+export function getAnnouncement(id: string): Promise<Announcement> {
+  return get(`/announcements/${encodeURIComponent(id)}`);
+}
+
+export function readAnnouncement(id: string): Promise<{ read_at: number }> {
+  return post(`/announcements/${encodeURIComponent(id)}/read`, {});
+}
+
+export function getPublishedAnnouncements(): Promise<{ list: AnnouncementSummary[] }> {
+  return get("/admin/announcements");
+}
+
+export function getAnnouncementReceipts(id: string): Promise<AnnouncementReceipts> {
+  return get(`/admin/announcements/${encodeURIComponent(id)}/receipts`);
+}
+
+export function publishAnnouncement(values: {
+  title: string;
+  content: string;
+  scope: Announcement["scope"];
+  department_id?: string;
+}): Promise<{ announcement_id: string; recipient_count: number; notified: number; notification_failures: number }> {
+  return post("/admin/announcements", values);
 }
 
 // ===================== 工具 =====================

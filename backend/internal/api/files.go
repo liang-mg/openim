@@ -33,9 +33,15 @@ import (
 // 一旦生成永久可访问地址，链接被转发就等于数据泄露。签名地址只活 30 分钟。
 
 const (
-	fileLinkTTL   = 30 * time.Minute
-	maxFileNameLn = 120
+	fileLinkTTL       = 30 * time.Minute
+	maxFileNameLn     = 120
+	fileScopeLeave    = "leave"
+	fileScopeContract = "contract"
 )
+
+func fileScopeRequiresRecord(scope string) bool {
+	return scope == fileScopeLeave || scope == fileScopeContract
+}
 
 // 允许的扩展名白名单：不靠 Content-Type 判断（客户端可伪造）
 var allowedFileExt = map[string]string{
@@ -89,7 +95,7 @@ func safeName(name string) string {
 }
 
 // saveFile 统一入口：上传成功后落元数据，返回可下发的 FileMeta
-func (s *Server) saveFile(ctx context.Context, ownerID, name, scope string, r io.Reader, size int64, mime string) (*model.FileMeta, error) {
+func (s *Server) saveFile(ctx context.Context, ownerID, name, scope string, r io.Reader, size int64, mime string, contractEmployeeID ...string) (*model.FileMeta, error) {
 	fid := newFileID()
 	ext := strings.ToLower(path.Ext(name))
 	key := fmt.Sprintf("%s/%s/%s%s", s.Cfg.CompanyID, time.Now().Format("2006-01"), fid, ext)
@@ -107,6 +113,9 @@ func (s *Server) saveFile(ctx context.Context, ownerID, name, scope string, r io
 		Scope:     scope,
 		CreatedAt: time.Now().UnixMilli(),
 	}
+	if len(contractEmployeeID) > 0 {
+		meta.ContractEmployeeID = contractEmployeeID[0]
+	}
 	if _, err := s.Store.Files().InsertOne(ctx, meta); err != nil {
 		// 入库失败就把对象删掉，避免留下没有任何记录指向的垃圾文件
 		_ = s.Files.Remove(ctx, key)
@@ -115,7 +124,7 @@ func (s *Server) saveFile(ctx context.Context, ownerID, name, scope string, r io
 	return &meta, nil
 }
 
-// Upload 上传附件（日报、后续的请假证明复用同一个接口）
+// Upload 上传日报、请假等业务的附件。
 func (s *Server) Upload(c *gin.Context) {
 	if s.Files == nil {
 		fail(c, "文件服务未就绪，请联系管理员")
@@ -158,23 +167,38 @@ func (s *Server) Upload(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	meta, err := s.saveFile(ctx, uid, name, scope, f, fh.Size, mime)
+	employeeID := ""
+	if scope == fileScopeContract {
+		if !s.isAdmin(ctx, uid) {
+			failCode(c, 403, "无权上传合同附件")
+			return
+		}
+		employeeID = c.PostForm("contract_employee_id")
+		if employeeID == "" || s.getEmployee(ctx, employeeID) == nil {
+			fail(c, "员工不存在")
+			return
+		}
+	}
+	meta, err := s.saveFile(ctx, uid, name, scope, f, fh.Size, mime, employeeID)
 	if err != nil {
 		fail(c, "上传失败，请重试")
 		return
 	}
 
-	ok(c, gin.H{
-		"file_id":    meta.ID,
-		"name":       meta.Name,
-		"size":       meta.Size,
-		"mime":       meta.Mime,
-		"url":        "/oa/api/v1/files/" + meta.ID,
-		"signed_url": s.signedPath(meta.ID, uid, time.Now().Add(fileLinkTTL)),
-	})
+	result := gin.H{
+		"file_id": meta.ID,
+		"name":    meta.Name,
+		"size":    meta.Size,
+		"mime":    meta.Mime,
+		"url":     "/oa/api/v1/files/" + meta.ID,
+	}
+	if !fileScopeRequiresRecord(meta.Scope) {
+		result["signed_url"] = s.signedPath(meta.ID, uid, time.Now().Add(fileLinkTTL))
+	}
+	ok(c, result)
 }
 
-// FileInfo 取文件链接：前端 image/下载都用这个换签名地址
+// FileLink 为支持短签名的文件生成链接。
 func (s *Server) FileLink(c *gin.Context) {
 	if s.Files == nil {
 		fail(c, "文件服务未就绪")
@@ -189,7 +213,7 @@ func (s *Server) FileLink(c *gin.Context) {
 		fail(c, "文件不存在")
 		return
 	}
-	if !s.canReadFile(ctx, uid, meta) {
+	if fileScopeRequiresRecord(meta.Scope) || !s.canReadFile(ctx, uid, meta) {
 		fail(c, "无权访问该文件")
 		return
 	}
@@ -203,7 +227,7 @@ func (s *Server) FileLink(c *gin.Context) {
 	})
 }
 
-// Download 文件读取：header token 或签名二选一
+// Download 校验登录态或短签名。请假附件还需校验关联申请。
 func (s *Server) Download(c *gin.Context) {
 	if s.Files == nil {
 		c.Status(503)
@@ -219,9 +243,10 @@ func (s *Server) Download(c *gin.Context) {
 		return
 	}
 
-	// 签名校验通过就不再查 token，方便 <img src> 和 <a download> 直接用
+	requiresRecord := fileScopeRequiresRecord(meta.Scope)
+	// 签名供日报、打卡等页面直接使用；请假与合同附件仍需关联记录。
 	sigOK := false
-	if e := c.Query("e"); e != "" {
+	if e := c.Query("e"); !requiresRecord && e != "" {
 		sigOK = s.verifySignature(id, c.Query("u"), e, c.Query("s"), time.Now())
 	}
 	if !sigOK {
@@ -230,7 +255,20 @@ func (s *Server) Download(c *gin.Context) {
 			tok = strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 		}
 		uid, err := auth.Parse(tok, s.Cfg.Secret)
-		if err != nil || !s.canReadFile(ctx, uid, meta) {
+		if err != nil {
+			c.Status(403)
+			return
+		}
+		canRead := false
+		switch meta.Scope {
+		case fileScopeLeave:
+			canRead = s.canReadLeaveAttachment(ctx, uid, c.Query("leave_id"), meta)
+		case fileScopeContract:
+			canRead = s.canReadContractAttachment(ctx, uid, c.Query("contract_employee_id"), meta)
+		default:
+			canRead = s.canReadFile(ctx, uid, meta)
+		}
+		if !canRead {
 			c.Status(403)
 			return
 		}
@@ -251,7 +289,11 @@ func (s *Server) Download(c *gin.Context) {
 	c.Header("Content-Type", meta.Mime)
 	c.Header("Content-Length", strconv.FormatInt(meta.Size, 10))
 	c.Header("Content-Disposition", fmt.Sprintf("%s; filename*=UTF-8''%s", disposition, url.PathEscape(meta.Name)))
-	c.Header("Cache-Control", "private, max-age=600")
+	if requiresRecord {
+		c.Header("Cache-Control", "private, no-store")
+	} else {
+		c.Header("Cache-Control", "private, max-age=600")
+	}
 	if _, err = io.Copy(c.Writer, obj); err != nil {
 		// 头已经写出去了，只能中断连接
 		return

@@ -192,7 +192,7 @@ const LeftNavBar = memo(() => {
     let alive = true;
     getMe()
       .then((me) => {
-        if (alive) setIsAdmin(!!me?.is_admin);
+        if (alive) setIsAdmin(Boolean(me?.is_admin || me?.can_view_all));
       })
       .catch(() => {
         if (alive) setIsAdmin(false);

@@ -1,0 +1,5 @@
+services:
+  xinbo-oa:
+    environment:
+      OA_ENVIRONMENT: test
+      OA_SEED_EMPLOYEES: ${OA_TEST_SEED_EMPLOYEES:-false}
