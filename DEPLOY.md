@@ -46,9 +46,9 @@ bash deploy/deploy.sh bootstrap
 
 浏览器打开 **http://127.0.0.1:5173**。
 
-登录验证码 `666666`（需要 IM 服务 openim-server / openim-chat 已启动）。新环境先按 `docs/OA测试账号与权限说明.md` 建档。
+用**账号（手机号）+ 密码**登录，六个测试账号的密码见 `docs/OA测试账号与权限说明.md`（需要 IM 服务 openim-server / openim-chat 已启动）。新环境先在 IM 侧建账号，再到 OA「员工与权限」建档并指定上级。
 
-> 如果只起了 OA 服务没起 IM，页面能打开但无法登录验证码。要么把 `openim-server` / `openim-chat` 服务起起来，要么只验证 OA 接口：`curl http://127.0.0.1:10010/oa/api/v1/healthz`。
+> 如果只起了 OA 服务没起 IM，页面能打开但登录会失败。要么把 `openim-server` / `openim-chat` 服务起起来，要么只验证 OA 接口：`curl http://127.0.0.1:10010/oa/api/v1/healthz`。
 
 ---
 
@@ -102,7 +102,7 @@ bash deploy.sh build           # 改代码后重新构建两个镜像
 
 ### 登录相关
 
-- **页面能开但验证码失败**：IM 服务没起。检查 `openim-server` / `openim-chat` 容器状态。
+- **页面能开但登录失败**：IM 服务没起，或密码不对。先检查 `openim-server` / `openim-chat` 容器状态（chat 若是 unhealthy，等 mongo/server 就绪后 `docker restart openim-chat`）。
 - **接口全部 401**：`XINBO_OA_TOKEN_SECRET` 和 chat 的 secret 不一致。
 
 ### 手动等价步骤（理解 bootstrap 做了什么）

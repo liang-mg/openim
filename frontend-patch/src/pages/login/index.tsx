@@ -1,12 +1,11 @@
 import { t } from "i18next";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useCopyToClipboard } from "react-use";
 
 import login_bg from "@/assets/images/login/login_bg.png";
 import WindowControlBar from "@/components/WindowControlBar";
 import { APP_NAME, APP_VERSION, SDK_VERSION } from "@/config";
 import { feedbackToast } from "@/utils/common";
-import { getLoginMethod, setLoginMethod as saveLoginMethod } from "@/utils/storage";
 
 import styles from "./index.module.scss";
 import LoginForm from "./LoginForm";
@@ -18,14 +17,8 @@ export type FormType = 0 | 1 ;
 export const Login = () => {
   // 0login 1resetPassword 2register
   const [formType, setFormType] = useState<FormType>(0);
-  const [loginMethod, setLoginMethod] = useState<"phone" | "email">(getLoginMethod());
 
   const [, copyToClipboard] = useCopyToClipboard();
-
-  const updateLoginMethod = useCallback((method: "phone" | "email") => {
-    setLoginMethod(method);
-    saveLoginMethod(method);
-  }, []);
 
   const handleCopy = () => {
     copyToClipboard(`${`${APP_NAME} ${APP_VERSION}`}/${SDK_VERSION}`);
@@ -45,15 +38,9 @@ export const Login = () => {
           className={`${styles.login} mr-14 h-[450px] w-[350px] rounded-md p-11 max-[600px]:!mr-0 max-[600px]:!h-auto max-[600px]:!w-full max-[600px]:!max-w-[380px] max-[600px]:!p-6`}
           style={{ boxShadow: "0 0 30px rgba(0,0,0,.1)" }}
         >
-          {formType === 0 && (
-            <LoginForm
-              setFormType={setFormType}
-              loginMethod={loginMethod}
-              updateLoginMethod={updateLoginMethod}
-            />
-          )}
+          {formType === 0 && <LoginForm />}
           {formType === 1 && (
-            <ModifyForm setFormType={setFormType} loginMethod={loginMethod} />
+            <ModifyForm setFormType={setFormType} loginMethod="phone" />
           )}
           {/* {formType === 2 && (
             <RegisterForm loginMethod={loginMethod} setFormType={setFormType} />

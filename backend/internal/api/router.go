@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -43,7 +44,12 @@ func (s *Server) Router() *gin.Engine {
 	r.GET("/oa/api/v1/files/:id", s.Download)
 
 	g := r.Group("/oa/api/v1")
-	g.Use(auth.Middleware(s.Cfg.Secret))
+	// 停用账号即使还持有旧 chatToken 也不允许访问 OA 数据；
+	// 档案不存在的人（纯 IM 用户）不拦，避免影响聊天功能。
+	g.Use(auth.MiddlewareWithCheck(s.Cfg.Secret, func(ctx context.Context, uid string) bool {
+		e := s.getEmployee(ctx, uid)
+		return e != nil && e.Disabled
+	}))
 	{
 		g.GET("/me", s.Me)
 		g.GET("/workbench/summary", s.WorkbenchSummary)

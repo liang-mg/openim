@@ -29,6 +29,8 @@
 
 | 路径 | 改动摘要 |
 |---|---|
+| `src/pages/login/LoginForm.tsx` | 登录改为「账号（手机号）+ 密码」，移除邮箱 tab、验证码发送与切换、忘记密码入口 |
+| `src/pages/login/index.tsx` | 去掉登录方式（phone/email）状态，登录表单不再接收切换回调 |
 | `index.html` | 页面标题/图标等品牌化 |
 | `src/App.tsx` | 接入 OA 全局配置 |
 | `src/api/imApi.ts` | IM 接口适配（token 头、base 地址） |
