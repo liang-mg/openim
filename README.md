@@ -113,7 +113,7 @@ bash deploy/deploy.sh bootstrap
 
 ### Windows / macOS 桌面端
 
-前端源码本身是 Electron 工程，可打成桌面安装包。同事安装后**在登录页填一个服务器域名**即可连接后端全部服务（Web 端行为不变）。
+前端源码本身是 Electron 工程，可打成桌面安装包。后端地址在打包时内置（`src/utils/serverConfig.ts` 的 `BUILTIN_SERVER_HOST`），同事安装后**直接填账号密码即可登录**，无需配置（Web 端行为不变）。换服务器由打包方改常量重新打包，见 `docs/桌面端部署与分发.md`。
 
 ```bash
 cd frontend
@@ -180,4 +180,4 @@ test: 补团队出勤回归
 - 生成的 `.env` 若改了 chat 配置里的 secret，必须同步改 `XINBO_OA_TOKEN_SECRET`，否则登录态校验失败、接口全部 401。
 - GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`，`deploy.sh build` 会透传给镜像构建。
 - **桌面端登录页不显示「服务器地址」输入框 / 点登录没反应**：多半是 preload 加载失败、`window.electronAPI` 未注入。典型原因是 preload 引用的公共模块里读了 `app.isPackaged`（preload 上下文没有 `app`）而抛错。排查：带 `--remote-debugging-port=9223` 启动，用浏览器打开 `http://127.0.0.1:9223/json` 拿页面 WebSocket 地址，连上看 Runtime 异常。修复见 `CHANGES.md` 第六节。
-- **桌面端登录必须填服务器地址**：生产模式登录页第一项就是服务器地址（后端 IP 或域名，如 `127.0.0.1`），程序自动派生各服务端口；留空点登录不会有任何反应。
+- **桌面端服务器地址是打包时内置的**：登录页只填账号密码，不需要也不允许输入服务器地址。要换后端地址，改 `frontend/src/utils/serverConfig.ts` 的 `BUILTIN_SERVER_HOST` 后重新打包安装；地址派生规则用 `node scripts/oa_desktop_config_check.js` 验证（32 项）。

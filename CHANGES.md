@@ -99,3 +99,14 @@
   ```
 - **验证**（CDP 自动化，win-unpacked）：修复后 `electronAPI=object`、服务器地址输入框出现、preload 报错 0；填入 `127.0.0.1` + `12345678003` + `Xinbo@2026` 点登录，成功跳转到 `#/chat` 并显示「刘洋 / 消息 / 通讯录 / 工作台」。
 - 注意：登录页**必须填服务器地址**（桌面端生产模式），填后端所在 IP/域名；不填则 `onFinish` 直接 return。
+
+---
+
+## 七、登录页去掉服务器地址输入（2026-11-20）
+
+- 用户反馈：让普通同事在登录页填服务器地址不合理（不知道填什么）。改为**完全内置写死**方案。
+- `src/utils/serverConfig.ts`：新增 `BUILTIN_SERVER_HOST` 常量（默认 `"127.0.0.1"`）；桌面端生产模式用 `parseHost(host ?? BUILTIN_SERVER_HOST)`，不再读 `localStorage` 的用户输入。换服务器 = 改这一行 + 重新打包。
+- `src/pages/login/LoginForm.tsx`：删除服务器地址表单项、`needServerHost` 分支、`getServerHost`/`setServerHost` 调用；登录页现在只有账号 + 密码。
+- `scripts/oa_desktop_config_check.js`：新增源码一致性断言（内置常量存在、桌面模式用内置地址、登录页无 serverHost 字段/无 needServerHost），共 **32/32 通过**。
+- CDP 端到端验证（win-unpacked）：登录页 `hasServerLabel=false`、inputs 仅账号+密码、`electronAPI=object`、preload 报错 0；填 `12345678003`/`Xinbo@2026` 直接登录成功进入 `#/chat`。
+- 文档同步：`docs/桌面端部署与分发.md`、`README.md` 改为"地址内置、打包方改常量"的说明。

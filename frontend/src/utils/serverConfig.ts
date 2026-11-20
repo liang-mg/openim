@@ -10,6 +10,15 @@
 
 const HOST_KEY = "OA_SERVER_HOST";
 
+/**
+ * 桌面端内置的后端服务器地址（打包时写死，登录页不再让用户输入）。
+ *
+ * 换服务器时：改这一行 → 重新打包安装。
+ * - 只填域名或 IP（不带 http://）：程序按标准端口派生 6 个服务地址；
+ * - 填 https://域名：按反向代理模式派生（api/chat/oa/oss/livekit 走路径前缀）。
+ */
+export const BUILTIN_SERVER_HOST = "127.0.0.1";
+
 /** 标准端口模式下的服务端口（与 oa-custom/base/docker-compose.yaml 一致） */
 const PORTS = {
   api: 10002,
@@ -146,9 +155,11 @@ export const resolveServerURLs = (host?: string, forceBrowser = false): ServerUR
     };
   }
 
-  const parsed = parseHost(host ?? getServerHost());
+  // 桌面端生产模式：地址在打包时内置（BUILTIN_SERVER_HOST），登录页不再输入。
+  // 保留 host 入参仅用于回归测试注入；正常运行时一律用内置地址。
+  const parsed = parseHost(host ?? BUILTIN_SERVER_HOST);
   if (!parsed) {
-    // Electron 但没填 host：回退同源，页面不会白屏；表单校验会阻止登录提交
+    // 内置地址为空（部署方误删）：回退同源，避免白屏；此时登录接口会失败但页面可用。
     const origin = window.location.origin;
     const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
     return {

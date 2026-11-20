@@ -125,9 +125,21 @@ for (const [name, token] of [
   ["运行时判定函数", "export const isElectronRuntime"],
   ["派生函数", "export const resolveServerURLs"],
   ["切服务器清 token", "clearIMProfile()"],
+  ["内置服务器地址常量", "export const BUILTIN_SERVER_HOST"],
+  ["桌面模式用内置地址", "parseHost(host ?? BUILTIN_SERVER_HOST)"],
 ]) {
   check(`源码含 ${name}`, source.includes(token), true);
 }
+
+console.log("\n=== 7. 登录页不再让用户输入服务器地址 ===");
+const LOGIN_FORM = path.join(
+  path.dirname(path.dirname(SOURCE)),
+  "pages/login/LoginForm.tsx",
+);
+const loginSource = fs.existsSync(LOGIN_FORM) ? fs.readFileSync(LOGIN_FORM, "utf8") : "";
+check("登录表单源码存在", loginSource.length > 0, true);
+check("无服务器地址表单项", !loginSource.includes('name="serverHost"'), true);
+check("无 needServerHost 分支", !loginSource.includes("needServerHost"), true);
 
 console.log(`\n=== 结果：${pass} 通过 / ${fail} 失败 ===\n`);
 process.exit(fail ? 1 : 0);
