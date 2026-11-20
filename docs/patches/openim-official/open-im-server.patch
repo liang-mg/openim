@@ -1,0 +1,71 @@
+diff --git a/Dockerfile b/Dockerfile
+index c1fceef..2d2796a 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,5 +1,9 @@
+ FROM golang:alpine AS builder
+ 
++# 本地构建走国内 Go 模块代理（proxy.golang.org 在当前网络不可达）
++ARG GOPROXY=https://goproxy.cn,direct
++ENV GOPROXY=${GOPROXY}
++
+ ARG RELEASE=false
+ ARG COMPRESS=false
+ WORKDIR /openim-server
+diff --git a/internal/rpc/msg/revoke.go b/internal/rpc/msg/revoke.go
+index c2fb583..607acae 100644
+--- a/internal/rpc/msg/revoke.go
++++ b/internal/rpc/msg/revoke.go
+@@ -32,6 +32,11 @@ import (
+ 	"github.com/openimsdk/tools/utils/datautil"
+ )
+ 
++const (
++	// revokeTimeLimit 撤回本人消息的时间窗口。
++	revokeTimeLimit = 2 * time.Minute
++)
++
+ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.RevokeMsgResp, error) {
+ 	if req.UserID == "" {
+ 		return nil, errs.ErrArgs.WrapMsg("user_id is empty")
+@@ -97,6 +102,16 @@ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.
+ 		}
+ 	}
+ 	now := time.Now().UnixMilli()
++
++	// 撤回时限：撤回本人发送的消息，只允许在 revokeTimeLimit 内操作。
++	// 管理员/群主撤回他人消息属于管理行为，不受时间限制。
++	// 如需调整时限，只需改这里的常量。
++	if req.UserID == msgs[0].SendID && msgs[0].SendTime > 0 {
++		if now-msgs[0].SendTime > revokeTimeLimit.Milliseconds() {
++			return nil, servererrs.ErrMsgRevokeExpired.WrapMsg("message can only be revoked within 2 minutes")
++		}
++	}
++
+ 	err = m.MsgDatabase.RevokeMsg(ctx, req.ConversationID, req.Seq, &model.RevokeModel{
+ 		Role:     role,
+ 		UserID:   req.UserID,
+diff --git a/pkg/common/servererrs/code.go b/pkg/common/servererrs/code.go
+index 87ccef8..99d43e6 100644
+--- a/pkg/common/servererrs/code.go
++++ b/pkg/common/servererrs/code.go
+@@ -75,6 +75,7 @@ const (
+ 	MutedInGroup          = 1402 // Member muted in the group
+ 	MutedGroup            = 1403 // Group is muted
+ 	MsgAlreadyRevoke      = 1404 // Message already revoked
++	MsgRevokeExpired      = 1405 // Revoke time window expired
+ 
+ 	// Token error codes.
+ 	TokenExpiredError     = 1501
+diff --git a/pkg/common/servererrs/predefine.go b/pkg/common/servererrs/predefine.go
+index 1273113..63e5b85 100644
+--- a/pkg/common/servererrs/predefine.go
++++ b/pkg/common/servererrs/predefine.go
+@@ -58,6 +58,7 @@ var (
+ 	ErrMutedInGroup     = errs.NewCodeError(MutedInGroup, "MutedInGroup")
+ 	ErrMutedGroup       = errs.NewCodeError(MutedGroup, "MutedGroup")
+ 	ErrMsgAlreadyRevoke = errs.NewCodeError(MsgAlreadyRevoke, "MsgAlreadyRevoke")
++	ErrMsgRevokeExpired = errs.NewCodeError(MsgRevokeExpired, "MsgRevokeExpired")
+ 
+ 	ErrConnOverMaxNumLimit = errs.NewCodeError(ConnOverMaxNumLimit, "ConnOverMaxNumLimit")
+ 

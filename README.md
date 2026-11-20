@@ -9,7 +9,7 @@
 |---|---|
 | **这套系统现在有什么**：13 个模块、45 个接口、9 张数据表、角色权限矩阵、还没做的部分 | **[docs/OA功能清单-已开发.md](docs/OA功能清单-已开发.md)** |
 | **怎么把它跑起来**：clone + 一条命令、生产配置、故障排查 | **[DEPLOY.md](DEPLOY.md)** |
-| **同事 clone 后目录对不上 / 两边代码怎么同步** | 本文件「二、本机目录与仓库对照」 |
+| **团队协作**：改完代码怎么交付、怎么拉别人的改动、常见坑 | **[docs/仓库开发流程.md](docs/仓库开发流程.md)** |
 | 测试账号、谁登录能看什么 | [docs/OA测试账号与权限说明.md](docs/OA测试账号与权限说明.md) |
 | 打卡 / 考勤 / 异常 / 审批的详细设计 | [docs/打卡功能-详细设计.md](docs/打卡功能-详细设计.md) |
 | **Windows/macOS 桌面端**：怎么用、怎么打包、怎么分发 | **[docs/桌面端部署与分发.md](docs/桌面端部署与分发.md)** |
@@ -37,19 +37,26 @@
 
 ---
 
-## 二、本机目录与仓库对照（协作必读）
+## 二、仓库即唯一工作目录（协作必读）
 
-同事 clone 后只有 `openim/` 一个仓库目录，看不到你本机的 `openim-docker-latest/src/...` 大仓布局——这是正常的。两边是**同一份源码的两处工作副本**，不是两套系统。
+**团队所有开发都在本仓库内完成**，不再有"本机大仓 + 协作仓"两份副本。`backend/`、`frontend/` 就是唯一源码，改完直接 commit/push，同事 pull 后一键部署即是最新版。
 
-| 本机（你） | 仓库（同事 clone 后） | 说明 |
-|---|---|---|
-| `openim-docker-latest/src/openim-electron-demo/` | `frontend/` | 同一份前端源码（已逐文件核对一致）；本机额外有 `node_modules/`、`dist/`、`dist-electron/`、`release/`、`.env.local`，按约定不入库 |
-| `openim-docker-latest/src/xinbo-oa/` | `backend/` | OA 后端源码 |
-| `openim-docker-latest/base/` | `base/` | 服务编排与配置快照 |
-| `openim-docker-latest/scripts/oa_*.js` | `scripts/` | 回归脚本（已改为可移植，自动找依赖/浏览器） |
-| `openim-docker-latest/output/` | 不入库 | 回归截图/附件，运行时自动生成 |
+仓库目录说明：
 
-**为什么文件夹不一样**：`node_modules/`（几百 MB 依赖）、`dist/`（构建产物）、`release/`（安装包）、`.env.local`（密钥）都不该进 git。仓库存的是干净源码，clone 后本地装依赖、构建即可；同事不需要再 clone 大仓，也不需要本地装 Go（后端走 Docker 镜像构建）。
+| 目录 | 说明 |
+|---|---|
+| `backend/` | OA 后端 Go 源码（Docker 镜像内编译，本地无需装 Go） |
+| `frontend/` | OA 前端 + Electron 桌面端完整工程（含 `package.json`、`electron-builder.json5`、`build:win` 脚本） |
+| `base/` | 官方底座编排与配置快照（拉镜像，不碰代码） |
+| `deploy/` | 一键部署脚本（bootstrap / build / up / verify 等） |
+| `frontend-custom/` | 管理后台（11002）新博品牌覆盖文件，随 bootstrap 自动挂载 |
+| `scripts/` | 回归脚本 + 品牌脚本（可移植，自动找依赖/浏览器） |
+| `docs/patches/` | 官方 IM 底座二开补丁存档（不参与构建，仅保底） |
+| `output/` | 回归截图/附件，运行时自动生成，不入库 |
+
+`node_modules/`、`dist/`、`release/`、`.env*` 都不进 git：clone 后本地装依赖、构建即可。
+
+> **历史遗留**：早期团队在本机 `openim-docker-latest/src/` 大仓开发，靠 `scripts/sync-frontend.mjs` 双向同步到仓库——这条路径已废弃，`src/` 退役。官方底座的少量二开改动已存档到 `docs/patches/openim-official/`。若你仍持有旧的大仓副本，请勿再从它同步覆盖本仓库。
 
 ### 同事 clone 后怎么开发
 
@@ -77,18 +84,34 @@ node scripts/oa_attendance_ui_check.js   # 需 5173/10010 已启动
 | `CHROME_PATH=<exe>` | 指定浏览器；不设则找系统 Chrome，找不到用 playwright 自带 chromium |
 | `OA_OUTPUT_DIR=<目录>` | 截图输出目录，默认 `openim/output/` |
 
-### 两边代码怎么保持同步
+### 日常协作流程（改完 → 大家都能跑）
 
-本机大仓与协作仓是**两个独立 git 仓库**，改动必须显式同步，否则同事拿到的不是你打包的那份：
+只有一条主线，不分本机/仓库：
 
+**你改完代码要交付：**
 ```bash
-cd openim-docker-latest/oa-custom
-node scripts/sync-frontend.mjs status       # 先看差异
-node scripts/sync-frontend.mjs to-repo      # 本机改完后 -> 仓库，再 git add/commit/push
-node scripts/sync-frontend.mjs to-local     # 同事提交后你 pull，再同步回本机打包
+cd openim
+git pull --ff-only                 # 先拉，避免和同事的改动分叉
+# 改 backend/ 或 frontend/ 下的代码
+git add -A && git commit -m "说明改了什么"
+git push origin main
 ```
 
-同步脚本只覆盖源码文件，**不删除**目标里多出来的产物/密钥；`node_modules`/`dist`/`release`/`.env*` 永远不参与同步。
+**同事拿到你的改动：**
+```bash
+cd openim
+git pull --ff-only
+bash deploy/deploy.sh build        # 重建后端/前端镜像（改了代码必须 build）
+bash deploy/deploy.sh up           # 重启生效
+```
+
+**你拿到同事的改动：** 同上，先 `git pull --ff-only`，改了代码就 `build` + `up`。
+
+> ⚠️ 拉取后**只 `up` 不 `build` 跑的还是旧镜像**——Go/前端代码都编译进镜像了。这是最容易踩的坑。
+
+**桌面端 exe**：在 `frontend/` 目录执行 `corepack pnpm build:win`，产物在 `frontend/release/`。改了前端代码记得先重新构建。
+
+完整流程与分支约定见 [docs/仓库开发流程.md](docs/仓库开发流程.md)。
 
 ---
 

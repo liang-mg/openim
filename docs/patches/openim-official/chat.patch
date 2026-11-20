@@ -1,0 +1,27 @@
+diff --git a/Dockerfile b/Dockerfile
+index ce6abef..872194d 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,5 +1,9 @@
+ FROM golang:alpine AS builder
+ 
++# 本地构建走国内 Go 模块代理（proxy.golang.org 在当前网络不可达）
++ARG GOPROXY=https://goproxy.cn,direct
++ENV GOPROXY=${GOPROXY}
++
+ ARG RELEASE=false
+ ARG COMPRESS=false
+ WORKDIR /openim-chat
+diff --git a/internal/api/chat/start.go b/internal/api/chat/start.go
+index d6a3671..d4349db 100644
+--- a/internal/api/chat/start.go
++++ b/internal/api/chat/start.go
+@@ -128,7 +128,7 @@ func SetChatRoute(router gin.IRouter, chat *Api, mw *chatmw.MW) {
+ 	account := router.Group("/account")
+ 	account.POST("/code/send", chat.SendVerifyCode)                      // Send verification code
+ 	account.POST("/code/verify", chat.VerifyCode)                        // Verify the verification code
+-	account.POST("/register", mw.CheckAdminOrNil, chat.RegisterUser)     // Register
++	account.POST("/register", mw.CheckAdmin, chat.RegisterUser)     // Register
+ 	account.POST("/login", chat.Login)                                   // Login
+ 	account.POST("/password/reset", chat.ResetPassword)                  // Forgot password
+ 	account.POST("/password/change", mw.CheckToken, chat.ChangePassword) // Change password
