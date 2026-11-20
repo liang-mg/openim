@@ -14,6 +14,7 @@
 | `docs/` | OA 设计文档、排期、账号说明、日报 | 自建 |
 | `scripts/` | OA 接口/UI 回归脚本（19 个） | 自建 |
 | `config-template/` | 脱敏的环境变量模板 | 自建 |
+| `deploy/` | **一键部署脚本 + compose override** | 自建 |
 
 **不在本仓库**（各人自行准备）：
 - OpenIM 官方后端：`openim-server`、`chat`、`openim-docker`（部署编排）
@@ -23,7 +24,68 @@
 
 ---
 
-## 二、快速上手（新同事）
+## 二、一键部署（推荐，新同事从这里开始）
+
+把本仓库放在官方底座同级目录，然后一条命令搞定：
+
+```bash
+# 目录布局
+/work/openim-docker/            # 官方底座（含 docker-compose.yaml）
+/work/openim-docker/oa-custom/  # 本仓库（git clone 到这里）
+
+# 一键：预检 -> 自动生成 .env 和随机密钥 -> 编译后端 -> 构建镜像 -> 启动底座+OA -> 健康检查
+cd /work/openim-docker/oa-custom/deploy
+bash deploy.sh bootstrap
+```
+
+完成后：
+
+```
+bash deploy.sh status    # 看容器状态
+bash deploy.sh logs      # 看 OA 日志
+bash deploy.sh verify    # 健康检查 + 冒烟
+bash deploy.sh up        # 日常启动
+bash deploy.sh down      # 停止 OA（不动底座）
+bash deploy.sh restart   # 重启
+bash deploy.sh build     # 只重新编译+构建镜像（改代码后）
+```
+
+`bootstrap` 会自动做这些事：
+1. 检查 docker / go / compose / 模板是否就绪；
+2. 若没有 `.env`，从模板生成并填入**随机密钥**（首次）；已有则不覆盖；
+3. Go 交叉编译 OA 后端（`CGO_ENABLED=0 GOOS=linux GOARCH=amd64`）；
+4. 构建 `xinbo-oa:local` 镜像；
+5. 启动官方底座的 mongo / minio，再用 **compose override** 启动 OA 服务（不改官方 compose 文件）；
+6. 轮询 `/oa/api/v1/healthz` 直到通过。
+
+**为什么用 override**：`deploy/docker-compose.oa.yaml` 只定义 `xinbo-oa` 一个服务，叠加在官方 compose 上。官方升级底座时不会覆盖我们的改动，两边互不污染。
+
+**前端仍需单独一步**（前端不在 compose 里）：
+
+```bash
+cd /work/openim-docker
+git clone https://github.com/openimsdk/openim-electron-demo.git
+cp -r oa-custom/frontend-patch/* openim-electron-demo/
+cd openim-electron-demo && pnpm install && pnpm dev
+# 打开 http://127.0.0.1:5173
+```
+
+### dev / prod 差异
+
+| 项 | dev（本机） | prod（服务器） |
+|---|---|---|
+| 密钥 | 脚本自动生成随机串 | 手动设置强密码，走密钥管理，绝不进 Git |
+| OA 后端 | 本机编译 + `xinbo-oa:local` | 同左，或用 CI 构建镜像推仓库 |
+| 前端 | `pnpm dev` 5173 热更新 | `pnpm build` 静态包 + nginx `/oa` 反代（不带尾斜杠） |
+| chatToken secret | 必须与 chat 配置一致，否则登录态失效 | 同左，且用环境变量注入 |
+
+> **风险提示**：`bootstrap` 生成的随机密钥仅适合本地开发。生产环境务必手动设置强密码，并确认 `XINBO_OA_TOKEN_SECRET` 与 chat 的 `config/chat-rpc-admin.yml` secret 一致。
+
+---
+
+## 三、手动部署（备用 / 理解原理）
+
+> 一键脚本已封装下面的步骤；出问题或想搞清楚每一步时再看。
 
 ### 前置
 - Go 1.27+、Node 18+、pnpm、Docker + Docker Compose
@@ -108,7 +170,7 @@ export CHROME_PATH=/path/to/chrome
 
 ---
 
-## 三、开发约定（必读）
+## 四、开发约定（必读）
 
 1. **先全局设计，后写代码**：每个功能开工前回答 8 条检查——数据表、记录表先行、四视角（本人/组长/领导/HR）、上下游消费、统计口径唯一、状态机、边界、测试文档同步。详见 `docs/OA剩余开发清单与排期.md` 开头。
 2. **权限统一**：凡是「谁能看谁的数据」，一律走后端 `visibleUserIDs(ctx, uid, scope)`，不要在新接口里另写角色判断。
@@ -119,7 +181,7 @@ export CHROME_PATH=/path/to/chrome
 
 ---
 
-## 四、Git 协作规范
+## 五、Git 协作规范
 
 ```bash
 # 分支
@@ -141,7 +203,7 @@ test: 补团队出勤回归
 
 ---
 
-## 五、dev / prod 差异
+## 六、部署环境差异（补充）
 
 | 项 | dev（本地） | prod（部署） |
 |---|---|---|
@@ -152,10 +214,13 @@ test: 补团队出勤回归
 
 ---
 
-## 六、常见坑
+## 七、常见坑
 
 - Go 构建漏 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` → 容器 Restarting 且无日志。
 - MinIO 桶名必须 ≥3 字符（`oa` 会报错），本项目用 `xinbo-oa`。
 - nginx `proxy_pass` 带尾斜杠会剥掉 `/oa` 前缀 → 生产 404，必须不带斜杠并 reload。
 - 前端 `onError` 内联回调会导致 `useEffect` 无限请求 → 用 `useRef` + `useCallback` + `reqId`。
 - flex 布局裁切 → 子项要加 `min-height:0`。
+- 一键脚本必须在**官方底座同级目录**执行（本仓库是它的子目录），否则 compose 找不到官方文件；可用 `OA_COMPOSE` 显式指定。
+- 生成的 `.env` 若改了 chat 配置里的 secret，必须同步改 `XINBO_OA_TOKEN_SECRET`，否则登录态校验失败、接口全部 401。
+- Windows 上 Go 交叉编译必须带 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`；GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`。

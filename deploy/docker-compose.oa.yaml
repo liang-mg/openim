@@ -1,0 +1,53 @@
+# ============================================================
+# OA 服务 compose override（叠加到官方 openim-docker 的 docker-compose.yaml）
+#
+# 用法（在 openim-docker 根目录执行）：
+#   docker compose -f docker-compose.yaml \
+#                  -f oa-custom/deploy/docker-compose.oa.yaml \
+#                  up -d --build xinbo-oa
+#
+# 设计要点：
+#   1. 只定义 xinbo-oa 服务，不改官方任何服务，官方升级底座不冲突；
+#   2. 网络 openim 复用官方 compose 里定义的同名网络（不在这里重复声明）；
+#   3. mongo/minio 依赖官方服务已起，depends_on 只做启动顺序保证；
+#   4. 镜像用本地构建的 xinbo-oa:local，deploy.sh 会先编译再 build。
+# ============================================================
+services:
+  xinbo-oa:
+    image: ${XINBO_OA_IMAGE:-xinbo-oa:local}
+    build:
+      context: ./oa-custom/backend
+      dockerfile: Dockerfile
+    container_name: xinbo-oa
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - OA_PORT=10010
+      - OA_MONGO_URI=${XINBO_OA_MONGO_URI}
+      - OA_MONGO_DB=${XINBO_OA_MONGO_DB:-openim_v3}
+      - OA_TOKEN_SECRET=${XINBO_OA_TOKEN_SECRET}
+      - OA_COMPANY_ID=${XINBO_OA_COMPANY_ID:-xinbo}
+      - OA_MINIO_ENDPOINT=${XINBO_OA_MINIO_ENDPOINT:-minio:9000}
+      - OA_MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY_ID}
+      - OA_MINIO_SECRET_KEY=${MINIO_SECRET_ACCESS_KEY}
+      - OA_MINIO_BUCKET=${XINBO_OA_MINIO_BUCKET:-xinbo-oa}
+      - OA_FILE_MAX_MB=${XINBO_OA_FILE_MAX_MB:-20}
+      - OA_OFFICE_LAT=${XINBO_OA_OFFICE_LAT:-}
+      - OA_OFFICE_LNG=${XINBO_OA_OFFICE_LNG:-}
+      - OA_OFFICE_NAME=${XINBO_OA_OFFICE_NAME:-}
+      - OA_OFFICE_ADDRESS=${XINBO_OA_OFFICE_ADDRESS:-}
+      - OA_OFFICE_RADIUS=${XINBO_OA_OFFICE_RADIUS:-500}
+      - OA_CHECKIN_STRICT_FENCE=${XINBO_OA_STRICT_FENCE:-false}
+      - OA_MAP_KEY=${XINBO_OA_MAP_KEY:-}
+      - OA_WORK_ON_TIME=${XINBO_OA_WORK_ON_TIME:-09:05}
+      - OA_WORK_OFF_TIME=${XINBO_OA_WORK_OFF_TIME:-18:00}
+      - OA_WORK_LATE_GRACE_MIN=${XINBO_OA_LATE_GRACE_MIN:-0}
+    ports:
+      - "127.0.0.1:${XINBO_OA_PORT:-10010}:10010"
+    depends_on:
+      mongo:
+        condition: service_started
+      minio:
+        condition: service_started
+    networks:
+      - openim
