@@ -22,6 +22,10 @@
 | `src/pages/mine/` | 我的（OA 入口） |
 | `src/layout/MobileTabBar/` | 移动端底部导航 |
 | `vite.web.config.ts` | Web 构建配置，同源代理 `/api`、`/oa`、`/chat`、`/msg_gateway` |
+| `src/utils/serverConfig.ts` | 桌面端运行时服务器地址配置（一个 host 派生 6 个服务地址；Web 端走同源） |
+| `scripts/oa_desktop_config_check.js` | 桌面端地址派生回归（27 条用例） |
+| `docs/桌面端-运行时服务器配置设计.md` | 桌面端改造的全局性设计（8 条清单 + 地址规则 + 兼容方案） |
+| `docs/桌面端部署与分发.md` | Windows/macOS 安装包的使用、打包与分发说明 |
 
 ---
 
@@ -29,8 +33,13 @@
 
 | 路径 | 改动摘要 |
 |---|---|
-| `src/pages/login/LoginForm.tsx` | 登录改为「账号（手机号）+ 密码」，移除邮箱 tab、验证码发送与切换、忘记密码入口 |
-| `src/pages/login/index.tsx` | 去掉登录方式（phone/email）状态，登录表单不再接收切换回调 |
+| `src/pages/login/LoginForm.tsx` | 登录改为「账号（手机号）+ 密码」，移除邮箱/验证码；桌面端增加「服务器地址」输入框 |
+| `src/pages/login/index.tsx` | 去掉登录方式状态；桌面端卡片高度适配新增的服务器输入框 |
+| `src/api/login.ts` | axios baseURL 改为运行时解析（桌面端读登录页填的 host） |
+| `src/api/oaApi.ts` | OA baseURL 改为运行时解析；CSV 下载用完整地址 |
+| `src/utils/request.ts` | axios 工厂支持惰性 baseURL（函数），每次请求动态解析 |
+| `vite.config.ts` | `emptyOutDir: false`（沙箱环境避免批量删除超时） |
+| `scripts/electron-build.mjs` | 新增 `--skip-build` 复用产物；用 node 直启 electron-builder cli，不依赖 .cmd |
 | `index.html` | 页面标题/图标等品牌化 |
 | `src/App.tsx` | 接入 OA 全局配置 |
 | `src/api/imApi.ts` | IM 接口适配（token 头、base 地址） |

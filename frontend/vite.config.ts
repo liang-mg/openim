@@ -67,6 +67,9 @@ export default defineConfig(({ command }) => {
       : undefined,
     clearScreen: false,
     build: {
+      // 不清空输出目录：沙箱环境下批量删文件会触发回收站保护导致超时。
+      // 产物文件名带 hash，残留旧文件不影响运行结果。
+      emptyOutDir: false,
       sourcemap: false,
       cssCodeSplit: true,
       chunkSizeWarningLimit: 500,

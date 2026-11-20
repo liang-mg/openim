@@ -11,6 +11,7 @@
 | **怎么把它跑起来**：clone + 一条命令、生产配置、故障排查 | **[DEPLOY.md](DEPLOY.md)** |
 | 测试账号、谁登录能看什么 | [docs/OA测试账号与权限说明.md](docs/OA测试账号与权限说明.md) |
 | 打卡 / 考勤 / 异常 / 审批的详细设计 | [docs/打卡功能-详细设计.md](docs/打卡功能-详细设计.md) |
+| **Windows/macOS 桌面端**：怎么用、怎么打包、怎么分发 | **[docs/桌面端部署与分发.md](docs/桌面端部署与分发.md)** |
 
 ---
 
@@ -53,6 +54,20 @@ bash deploy/deploy.sh bootstrap
 **日报提交率与一键催交** · 站内通知（可选 IM 推送）· 员工与权限管理。
 
 **完整功能表见 [docs/OA功能清单-已开发.md](docs/OA功能清单-已开发.md)**：13 个模块逐项写明页面入口、能做什么、45 个接口、9 张数据表、角色能力矩阵、回归脚本，以及还没做的部分。
+
+### Windows / macOS 桌面端
+
+前端源码本身是 Electron 工程，可打成桌面安装包。同事安装后**在登录页填一个服务器域名**即可连接后端全部服务（Web 端行为不变）。
+
+```bash
+cd frontend
+corepack pnpm typecheck
+npx vite build                              # 先构建 dist + dist-electron
+node scripts/electron-build.mjs --skip-build --win --x64    # Windows NSIS
+node scripts/electron-build.mjs --skip-build --mac --arm64  # macOS（Apple 芯片）
+```
+
+产物在 `frontend/release/Base/3.8.3/`。`--skip-build` 用于复用已构建产物、避开重复构建；沙箱环境构建用 `npx vite build`（vite 配置已设 `emptyOutDir:false`）。使用与分发细节见 [docs/桌面端部署与分发.md](docs/桌面端部署与分发.md)。
 
 ## 三、开发约定（必读）
 

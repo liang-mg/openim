@@ -27,6 +27,7 @@ import { useConversationStore, useUserStore } from "@/store";
 import { useContactStore } from "@/store/contact";
 import { feedbackToast } from "@/utils/common";
 import { initStore } from "@/utils/imCommon";
+import { resolveServerURLs } from "@/utils/serverConfig";
 import { clearIMProfile, getIMToken, getIMUserID } from "@/utils/storage";
 
 import { IMSDK } from "./MainContentWrap";
@@ -126,10 +127,9 @@ export function useGlobalEvent() {
     const IMToken = (await getIMToken()) as string;
     const IMUserID = (await getIMUserID()) as string;
     try {
-    // 同源部署：接口地址按当前页面域名动态生成。
-    // 本地 5173 与公网隧道共用同一份前端，无需为不同域名重新打包。
-    const apiAddr = `${window.location.origin}/api`;
-    const wsAddr = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/msg_gateway`;
+    // Web 同源部署 + 桌面端运行时配置，统一由 resolveServerURLs 派生。
+    // 桌面端 loadFile 的 origin 是 file://，不能用 window.location 拼地址。
+    const { api: apiAddr, ws: wsAddr } = resolveServerURLs();
       if (window.electronAPI) {
         await IMSDK.initSDK({
           platformID: window.electronAPI?.getPlatform() ?? 5,

@@ -1,9 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 
 import createAxiosInstance from "@/utils/request";
+import { resolveServerURLs } from "@/utils/serverConfig";
 import { getChatToken } from "@/utils/storage";
 
-const request = createAxiosInstance(import.meta.env.VITE_CHAT_URL);
+const request = createAxiosInstance(() => resolveServerURLs().chat);
 
 export const getRtcConnectData = async (room: string, identity: string) => {
   const token = (await getChatToken()) as string;
@@ -20,13 +21,12 @@ export const getRtcConnectData = async (room: string, identity: string) => {
       },
     },
   );
-  // 后端返回 ws://127.0.0.1:7880，公网隧道下浏览器会连到访问者自己的机器。
-  // 统一改写为同源 /livekit，由 vite / nginx 反代到本机 LiveKit。
-  const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+  // 后端返回的是容器内网地址（如 ws://127.0.0.1:7880），客户端直连不通。
+  // Web 改写为同源 /livekit 由 nginx 反代；桌面端由运行时配置派生完整地址。
   return {
     data: {
       ...data,
-      serverUrl: `${wsProtocol}://${window.location.host}/livekit`,
+      serverUrl: resolveServerURLs().livekit,
     },
   };
 };

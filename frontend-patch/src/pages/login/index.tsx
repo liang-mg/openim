@@ -6,6 +6,7 @@ import login_bg from "@/assets/images/login/login_bg.png";
 import WindowControlBar from "@/components/WindowControlBar";
 import { APP_NAME, APP_VERSION, SDK_VERSION } from "@/config";
 import { feedbackToast } from "@/utils/common";
+import { isElectronRuntime } from "@/utils/serverConfig";
 
 import styles from "./index.module.scss";
 import LoginForm from "./LoginForm";
@@ -17,6 +18,8 @@ export type FormType = 0 | 1 ;
 export const Login = () => {
   // 0login 1resetPassword 2register
   const [formType, setFormType] = useState<FormType>(0);
+  // 桌面端多一个服务器地址输入框，卡片需要更高
+  const cardHeight = isElectronRuntime() ? "!h-[540px]" : "h-[450px]";
 
   const [, copyToClipboard] = useCopyToClipboard();
 
@@ -35,7 +38,7 @@ export const Login = () => {
           <LeftBar />
         </div>
         <div
-          className={`${styles.login} mr-14 h-[450px] w-[350px] rounded-md p-11 max-[600px]:!mr-0 max-[600px]:!h-auto max-[600px]:!w-full max-[600px]:!max-w-[380px] max-[600px]:!p-6`}
+          className={`${styles.login} ${cardHeight} mr-14 w-[350px] rounded-md p-11 max-[600px]:!mr-0 max-[600px]:!h-auto max-[600px]:!w-full max-[600px]:!max-w-[380px] max-[600px]:!p-6`}
           style={{ boxShadow: "0 0 30px rgba(0,0,0,.1)" }}
         >
           {formType === 0 && <LoginForm />}

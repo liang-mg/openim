@@ -4,11 +4,13 @@ import { v4 as uuidv4 } from "uuid";
 
 import { useUserStore } from "@/store";
 import createAxiosInstance from "@/utils/request";
+import { resolveServerURLs } from "@/utils/serverConfig";
 import { getChatToken } from "@/utils/storage";
 
 import { errorHandle } from "./errorHandle";
 
-const request = createAxiosInstance(import.meta.env.VITE_CHAT_URL);
+// 服务器地址运行时解析：Web 走同源，桌面端走登录页填写的 host
+const request = createAxiosInstance(() => resolveServerURLs().chat);
 
 const platform = window.electronAPI?.getPlatform() ?? 5;
 

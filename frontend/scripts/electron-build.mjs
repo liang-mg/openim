@@ -4,8 +4,10 @@ import { builtinModules, createRequire } from "node:module";
 import {
   copyFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -18,17 +20,21 @@ const packagePath = path.join(repoRoot, "package.json");
 const backupPath = path.join(repoRoot, ".electron-package.backup.json");
 const electronOutputPath = path.join(repoRoot, "dist-electron");
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const electronBuilderCommand = path.join(
-  repoRoot,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "electron-builder.cmd" : "electron-builder",
+// 直接用 node 启动 electron-builder 的 cli.js，不依赖 .cmd/.sh 启动器：
+// 部分受限环境会拦截 .cmd 创建子进程，用 process.execPath 启动更稳。
+const electronBuilderCli = createRequire(packagePath).resolve(
+  "electron-builder/cli.js",
 );
 
 const rawArgs = process.argv.slice(2).filter((arg) => arg !== "--");
 const dryRun = rawArgs.includes("--dry-run");
 const buildAll = rawArgs.includes("--all");
-const forwardedArgs = rawArgs.filter((arg) => arg !== "--dry-run" && arg !== "--all");
+// --skip-build：复用已有的 dist / dist-electron 产物，只做打包。
+// 用于已手动构建过、或受限环境下 pnpm 无法再次构建的场景。
+const skipBuild = rawArgs.includes("--skip-build");
+const forwardedArgs = rawArgs.filter(
+  (arg) => arg !== "--dry-run" && arg !== "--all" && arg !== "--skip-build",
+);
 
 const run = (command, args) => {
   console.log(`> ${path.basename(command)} ${args.join(" ")}`);
@@ -234,7 +240,35 @@ const restoreStaleBackup = () => {
 restoreStaleBackup();
 const builderCommands = getBuilderCommands();
 
-if (!dryRun) {
+/**
+ * pnpm 会把依赖提升到 node_modules/.pnpm/<pkg>@<ver>/node_modules/<pkg>，
+ * 但 electron-builder.json5 的 files/extraResources 用的是 node_modules/<pkg> 路径。
+ * 打包期间给这些包建顶层目录链接，结束后移除，避免原生库（koffi.node）漏打包。
+ */
+const ensurePnpmTopLevelLinks = () => {
+  const created = [];
+  for (const name of ["koffi", "rxjs"]) {
+    const linkPath = path.join(repoRoot, "node_modules", name);
+    if (existsSync(linkPath)) continue;
+    const candidates = readdirSync(path.join(repoRoot, "node_modules", ".pnpm"))
+      .filter((entry) => entry.startsWith(`${name}@`))
+      .map((entry) =>
+        path.join(repoRoot, "node_modules", ".pnpm", entry, "node_modules", name),
+      )
+      .filter(existsSync);
+    if (!candidates.length) continue;
+    try {
+      symlinkSync(candidates[0], linkPath, "junction");
+      created.push(linkPath);
+      console.log(`Linked node_modules/${name} -> ${path.basename(path.dirname(candidates[0]))}`);
+    } catch (error) {
+      console.warn(`Unable to link node_modules/${name}: ${error.message}`);
+    }
+  }
+  return created;
+};
+
+if (!dryRun && !skipBuild) {
   run(pnpmCommand, ["build"]);
 }
 
@@ -256,11 +290,12 @@ if (dryRun) {
 }
 
 writeFileSync(backupPath, originalPackageText);
+const links = ensurePnpmTopLevelLinks();
 let exitCode = 0;
 try {
   writeFileSync(packagePath, `${JSON.stringify(runtimeManifest, null, 2)}\n`);
   for (const args of builderCommands) {
-    run(electronBuilderCommand, args);
+    run(process.execPath, [electronBuilderCli, ...args]);
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
@@ -268,6 +303,13 @@ try {
 } finally {
   copyFileSync(backupPath, packagePath);
   unlinkSync(backupPath);
+  for (const link of links) {
+    try {
+      unlinkSync(link);
+    } catch {
+      // junction 删除失败可忽略，下次打包会复用
+    }
+  }
   console.log("Restored development package.json");
 }
 

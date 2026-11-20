@@ -1,5 +1,6 @@
 import axios from "axios";
 
+import { resolveServerURLs } from "@/utils/serverConfig";
 import { getChatToken } from "@/utils/storage";
 
 /**
@@ -379,11 +380,13 @@ export interface SaveEmployeeParams {
 // ===================== 请求封装 =====================
 
 const http = axios.create({
-  baseURL: "/oa/api/v1",
+  baseURL: resolveServerURLs().oaApi,
   timeout: 20000,
 });
 
 http.interceptors.request.use(async (config) => {
+  // 每次请求刷新 OA 地址：桌面端登录页填的 host 在模块加载时还读不到
+  config.baseURL = resolveServerURLs().oaApi;
   const token = await getChatToken();
   config.headers.token = token ?? "";
   return config;
@@ -540,7 +543,7 @@ export async function getAttendanceReport(params: {
  */
 export async function downloadAttendanceCsv(month: string, scope?: DataScope): Promise<void> {
   const token = await getChatToken();
-  const res = await axios.get("/oa/api/v1/checkin/report", {
+  const res = await axios.get(`${resolveServerURLs().oaApi}/checkin/report`, {
     params: { month, scope: scope || undefined, format: "csv" },
     headers: { token: String(token ?? "") },
     responseType: "blob",

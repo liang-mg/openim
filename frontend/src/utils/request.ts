@@ -9,14 +9,25 @@ import { feedbackToast } from "./common";
 
 const tokenErrorCodeList = [1501, 1503, 1504, 1505];
 
-const createAxiosInstance = (baseURL: string, imToken = true) => {
+/**
+ * baseURL 支持函数（惰性解析）：桌面端服务器地址是登录时填的，模块加载阶段还读不到，
+ * 必须在每次请求时重新解析。传字符串时行为与改造前完全一致（Web 端走这条）。
+ */
+const createAxiosInstance = (
+  baseURL: string | (() => string),
+  imToken = true,
+) => {
+  const resolveBaseURL = () =>
+    typeof baseURL === "function" ? baseURL() : baseURL;
   const serves = axios.create({
-    baseURL,
+    baseURL: resolveBaseURL(),
     timeout: 25000,
   });
 
   serves.interceptors.request.use(
     async (config) => {
+      // 每次请求刷新地址：桌面端切换服务器/首次填写后无需重建实例
+      config.baseURL = resolveBaseURL();
       const token = imToken ? await getIMToken() : await getChatToken();
       config.headers.token = config.headers.token ?? token;
       config.headers.operationID = uuidv4();
