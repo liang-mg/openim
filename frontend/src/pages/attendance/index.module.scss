@@ -1,0 +1,788 @@
+/* ---------- 出勤记录（独立页） ---------- */
+
+.att-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-layout, #f4f6fa);
+  display: flex;
+  flex-direction: column;
+}
+
+.att-topbar {
+  flex: 0 0 auto;
+  height: 56px;
+  min-height: 56px;
+  background: #0b5fd8;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  gap: 16px;
+}
+
+.att-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 17px;
+  font-weight: 600;
+
+  span:first-of-type {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+.att-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: #fff;
+}
+
+.att-nav-btn {
+  color: #fff !important;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.16) !important;
+  }
+
+  &[disabled] {
+    color: rgba(255, 255, 255, 0.45) !important;
+  }
+}
+
+.att-month {
+  min-width: 104px;
+  text-align: center;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-back-month {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #fff;
+  opacity: 0.9;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 1;
+    text-decoration: underline;
+  }
+}
+
+/* 关键：min-height:0 让 flex 子项能收缩，否则内容会把容器顶高、底部被裁 */
+.att-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 24px 40px;
+}
+
+/* 二级栏：视图切换 + 当前作息，让"9:05 上班"这种判定依据一直可见 */
+.att-subbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  background: #fff;
+  border-bottom: 1px solid #eef1f6;
+}
+
+.att-rule {
+  font-size: 12px;
+  color: #8a96ab;
+  white-space: nowrap;
+}
+
+/*
+ * 视图切换（我的出勤 / 团队出勤 / 出勤报表，以及「我的团队 / 全公司」）
+ * 问题：antd Segmented 的选中项默认是白底 + 淡阴影，而它坐在白色工具栏上，
+ * 白底叠白底 → 选中态等于隐形，整排看起来只是三个灰字，分不清当前在哪一档、
+ * 也看不出后两档能不能点。所以这里改成实心蓝底，未选中给足对比度 + hover 反馈。
+ */
+.view-switch {
+  :global(.ant-segmented) {
+    background: #eef2f8;
+    padding: 3px;
+    border-radius: 9px;
+  }
+
+  :global(.ant-segmented-item) {
+    color: #4a5a75;
+    font-weight: 500;
+    border-radius: 7px;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+
+  :global(.ant-segmented-item-label) {
+    padding: 0 14px;
+  }
+
+  /* small 尺寸（团队/报表工具条里那两档）留白收一点，否则文字会顶到蓝块边缘 */
+  :global(.ant-segmented-sm) :global(.ant-segmented-item-label) {
+    padding: 0 10px;
+  }
+
+  :global(.ant-segmented-item:not(.ant-segmented-item-selected):hover) {
+    color: #0b5fd8;
+    background: rgba(0, 137, 255, 0.1);
+  }
+
+  :global(.ant-segmented-item.ant-segmented-item-selected) {
+    background: #0b5fd8 !important;
+    color: #fff !important;
+    box-shadow: 0 2px 6px rgba(11, 95, 216, 0.26);
+  }
+
+  :global(.ant-segmented-item.ant-segmented-item-selected:hover),
+  :global(.ant-segmented-item.ant-segmented-item-selected:active) {
+    background: #0b5fd8 !important;
+    color: #fff !important;
+  }
+
+  /* 部分版本用 thumb 承载选中底色，一并染蓝，避免出现白色夹层 */
+  :global(.ant-segmented-thumb) {
+    background: #0b5fd8;
+    border-radius: 7px;
+  }
+
+  :global(.ant-segmented-item-disabled) {
+    color: #b6c0d0;
+  }
+}
+
+.att-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.att-summary {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 24px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.att-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.att-stat-num {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: #12233f;
+  font-variant-numeric: tabular-nums;
+
+  &.is-warn {
+    color: #d97706;
+  }
+
+  &.is-danger {
+    color: #d4380d;
+  }
+}
+
+.att-stat-label {
+  font-size: 12px;
+  color: #8a96ab;
+}
+
+.att-legend {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: #6b7a93;
+  flex-wrap: wrap;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  i {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+}
+
+.dot-done {
+  background: #cdeedd;
+}
+
+.dot-partial {
+  background: #ffe6b8;
+}
+
+.dot-absent {
+  background: #ffd6d0;
+}
+
+.dot-rest {
+  background: #e8ebf0;
+}
+
+.att-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.att-cal-card,
+.att-detail-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+.att-detail-card {
+  position: sticky;
+  top: 0;
+}
+
+.att-cal-hint {
+  font-size: 12px;
+  color: #8a96ab;
+  margin-bottom: 10px;
+}
+
+.att-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #8a96ab;
+  text-align: center;
+}
+
+.att-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.att-blank {
+  height: 78px;
+}
+
+.att-cell {
+  height: 78px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #f7f9fc;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  cursor: pointer;
+  font-family: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: #b7d4ff;
+  }
+}
+
+.att-day {
+  font-size: 12px;
+  color: #12233f;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 上班 / 下班时间分两行，右侧留出「查看」位置的余地 */
+.att-times {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  font-size: 11px;
+  color: #4a5a75;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-t-warn {
+  color: #d97706;
+}
+
+.att-miss {
+  font-size: 11px;
+  color: #d4380d;
+}
+
+.att-done {
+  background: #eefaf3;
+
+  .att-day {
+    color: #0f7a52;
+  }
+}
+
+.att-partial {
+  background: #fff7e8;
+}
+
+/* 已上班未下班：明确的"进行中"，不是缺卡也不是正常 */
+.att-in_progress {
+  background: #eef4ff;
+
+  .att-day {
+    color: #0b5fd8;
+  }
+}
+
+.att-progress {
+  font-size: 11px;
+  color: #0b5fd8;
+}
+
+.att-absent {
+  background: #fff2f0;
+}
+
+.att-weekend {
+  background: #f4f5f7;
+
+  .att-day {
+    color: #a2acbd;
+  }
+}
+
+.att-future,
+.att-idle {
+  background: #fbfcfe;
+
+  .att-day {
+    color: #b9c2cf;
+  }
+}
+
+.is-today {
+  box-shadow: inset 0 0 0 1px #0b5fd8;
+}
+
+.is-selected {
+  border-color: #0b5fd8;
+  box-shadow: 0 0 0 2px rgba(11, 95, 216, 0.12);
+}
+
+.att-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f2f4f8;
+}
+
+.att-detail-date {
+  font-size: 15px;
+  font-weight: 600;
+  color: #12233f;
+}
+
+.att-detail-state {
+  font-size: 12px;
+  color: #8a96ab;
+}
+
+.att-rows {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.att-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.att-row-label {
+  flex: 0 0 34px;
+  color: #8a96ab;
+}
+
+.att-row-time {
+  flex: 0 0 52px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0c1c33;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-row-miss {
+  color: #8a96ab;
+}
+
+.att-row-place {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin-top: -2px;
+  color: #4a5a75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.att-out-fence {
+  font-size: 11px;
+  color: #d97706;
+}
+
+.att-photo-link {
+  font-size: 12px;
+  color: #0089ff;
+  cursor: pointer;
+}
+
+.att-today-link {
+  display: inline-block;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #f2f4f8;
+  width: 100%;
+  font-size: 12px;
+  color: #0089ff;
+  cursor: pointer;
+}
+
+@media only screen and (max-width: 1100px) {
+  .att-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .att-detail-card {
+    position: static;
+  }
+}
+
+@media only screen and (max-width: 900px) {
+  .att-body {
+    padding: 16px 12px 32px;
+  }
+
+  .att-summary {
+    gap: 24px;
+    padding: 14px 16px;
+  }
+
+  .att-legend {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+
+  .att-cell,
+  .att-blank {
+    height: 60px;
+  }
+
+  .att-times {
+    font-size: 10px;
+  }
+}
+
+/* ==================== 团队出勤 / 出勤报表 ==================== */
+
+.tm-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tm-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+
+.tm-stats {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #6b7a93;
+
+  b {
+    font-size: 17px;
+    color: #12233f;
+    font-variant-numeric: tabular-nums;
+    margin: 0 2px;
+  }
+}
+
+.is-warn {
+  color: #d97706;
+}
+
+.is-danger {
+  color: #d4380d;
+}
+
+.tm-stats .is-warn b {
+  color: #d97706;
+}
+
+.tm-stats .is-danger b {
+  color: #d4380d;
+}
+
+.tm-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.tm-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #4a5a75;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tm-warn {
+  font-size: 12px;
+  color: #8a6d3b;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  padding: 8px 14px;
+  line-height: 1.6;
+}
+
+.tm-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 6px 8px 2px;
+  overflow: hidden;
+
+  :global(.ant-table-thead > tr > th) {
+    background: #f7f9fc;
+    font-weight: 600;
+    color: #4a5a75;
+  }
+}
+
+.tm-row-exception {
+  :global(td) {
+    background: #fffaf7;
+  }
+}
+
+.tm-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tm-name {
+  font-size: 14px;
+  color: #12233f;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tm-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fa8c16;
+  display: inline-block;
+}
+
+.tm-sub {
+  font-size: 12px;
+  color: #8a96ab;
+}
+
+.tm-time-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+
+  b {
+    font-size: 14px;
+    color: #12233f;
+  }
+}
+
+.tm-dim {
+  color: #a2acbd;
+  font-size: 12px;
+}
+
+.tm-miss {
+  font-size: 12px;
+  color: #d4380d;
+}
+
+.tm-progress {
+  font-size: 12px;
+  color: #0b5fd8;
+}
+
+.tm-attend {
+  white-space: nowrap;
+
+  b {
+    font-size: 15px;
+    color: #12233f;
+    margin-right: 3px;
+  }
+}
+
+.tm-num {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: #12233f;
+
+  &.is-warn {
+    color: #d97706;
+    font-weight: 600;
+  }
+
+  &.is-danger {
+    color: #d4380d;
+    font-weight: 600;
+  }
+}
+
+.tm-rate {
+  font-size: 13px;
+  color: #4a5a75;
+  font-variant-numeric: tabular-nums;
+}
+
+.tm-link {
+  font-size: 12px;
+  color: #0089ff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tm-foot {
+  font-size: 12px;
+  color: #8a96ab;
+  line-height: 1.7;
+  padding: 0 4px;
+}
+
+/* 抽屉里的成员月历：格子更紧凑，避免出现横向滚动 */
+.is-compact {
+  gap: 4px;
+
+  .att-cell {
+    height: 58px;
+    padding: 4px 6px;
+  }
+
+  .att-blank {
+    height: 58px;
+  }
+
+  .att-times {
+    font-size: 10px;
+  }
+}
+
+.tm-drawer-sum {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 14px;
+  background: #f7f9fc;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #4a5a75;
+  flex-wrap: wrap;
+
+  b {
+    font-size: 16px;
+    color: #12233f;
+    margin: 0 2px;
+  }
+}
+
+.tm-drawer-hint {
+  font-size: 12px;
+  color: #8a96ab;
+  margin: 12px 0 8px;
+}
+
+.tm-drawer-day {
+  margin-top: 16px;
+}
+
+.tm-drawer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #4a5a75;
+  padding: 6px 0;
+  border-bottom: 1px solid #f4f6fa;
+
+  b {
+    color: #12233f;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.rp-total-row {
+  :global(td) {
+    background: #f7f9fc;
+    font-weight: 600;
+    color: #12233f;
+  }
+}
+
+@media only screen and (max-width: 900px) {
+  .att-subbar {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+  }
+
+  .tm-stats {
+    gap: 14px;
+  }
+}

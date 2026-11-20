@@ -1,22 +1,23 @@
 # ============================================================
 # OA 服务 compose override（叠加到官方 openim-docker 的 docker-compose.yaml）
 #
-# 用法（在 openim-docker 根目录执行）：
-#   docker compose -f docker-compose.yaml \
-#                  -f oa-custom/deploy/docker-compose.oa.yaml \
-#                  up -d --build xinbo-oa
+# 用法（由 deploy.sh 调用，在 oa-custom 根目录执行）：
+#   docker compose -f base/docker-compose.yaml \
+#                  -f deploy/docker-compose.oa.yaml \
+#                  up -d --build xinbo-oa oa-web
 #
 # 设计要点：
-#   1. 只定义 xinbo-oa 服务，不改官方任何服务，官方升级底座不冲突；
+#   1. 只定义 OA 服务，不改官方任何服务，底座升级只需替换 base/ 下文件；
 #   2. 网络 openim 复用官方 compose 里定义的同名网络（不在这里重复声明）；
 #   3. mongo/minio 依赖官方服务已起，depends_on 只做启动顺序保证；
-#   4. 镜像用本地构建的 xinbo-oa:local，deploy.sh 会先编译再 build。
+#   4. build context 相对第一个 compose 文件（base/）解析，故用 ../backend ../frontend；
+#   5. 镜像本地构建，Go 编译内置 Dockerfile，宿主机无需 Go/Node。
 # ============================================================
 services:
   xinbo-oa:
     image: ${XINBO_OA_IMAGE:-xinbo-oa:local}
     build:
-      context: ./oa-custom/backend
+      context: ../backend
       dockerfile: Dockerfile
     container_name: xinbo-oa
     restart: unless-stopped
@@ -48,6 +49,24 @@ services:
       mongo:
         condition: service_started
       minio:
+        condition: service_started
+    networks:
+      - openim
+
+  # OA 前端（已含全部 OA 页面的官方 demo），nginx 同源反代 /api /chat /oa 等
+  oa-web:
+    image: ${XINBO_OA_WEB_IMAGE:-xinbo-oa-web:local}
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: oa-web
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "${XINBO_OA_WEB_PORT:-5173}:80"
+    depends_on:
+      xinbo-oa:
         condition: service_started
     networks:
       - openim

@@ -1,7 +1,7 @@
 # OpenIM OA 二开 · 协作仓库
 
-> 本仓库只放**我们自己写的 OA 二开代码**，不包含 OpenIM 官方开源代码。
-> 官方底座请各自 clone，按本文把本仓库的补丁覆盖上去即可协作开发。
+> **clone 本仓库 + 一条命令即可部署**：官方底座（compose/config）和打好补丁的前端完整源码都已打包进来，不用再 clone 任何官方仓库。
+> 自建业务代码在 `backend/`；`base/` 和 `frontend/` 是随仓库附带的底座与前端快照。
 
 ---
 
@@ -9,27 +9,30 @@
 
 | 目录 | 内容 | 来源 |
 |---|---|---|
-| `backend/` | 完整 OA 后端服务（Go/Gin/MongoDB/MinIO），可直接编译 | 自建，无官方对应 |
-| `frontend-patch/` | 前端 OA 相关的新增页面 + 被改动的官方文件 | 基于官方 `openim-electron-demo` |
+| `backend/` | 完整 OA 后端服务（Go/Gin/MongoDB/MinIO） | 自建 |
+| `base/` | 官方底座 `docker-compose.yaml` + `config/` | 官方 openim-docker 快照 |
+| `frontend/` | **完整前端源码，已含全部 OA 页面**，可直接构建镜像 | 官方 demo + `frontend-patch/` 补丁 |
+| `frontend-patch/` | OA 页面与改动文件清单（对账用，`frontend/` 已应用） | 基于官方 `openim-electron-demo` |
 | `docs/` | OA 设计文档、排期、账号说明、日报 | 自建 |
 | `scripts/` | OA 接口/UI 回归脚本（19 个） | 自建 |
 | `config-template/` | 脱敏的环境变量模板 | 自建 |
 | `deploy/` | **一键部署脚本 + compose override** | 自建 |
 
-**不在本仓库**（各人自行准备）：
-- OpenIM 官方后端：`openim-server`、`chat`、`openim-docker`（部署编排）
-- 官方前端 demo：`openim-electron-demo`（`frontend-patch/` 要覆盖到它上面）
-- 真实 `.env`、`.env.local`（含密钥，禁止入库）
+**不在本仓库**：
+- 真实 `.env`、`.env.local`（含密钥，禁止入库；由部署脚本生成）
 - `node_modules/`、`dist/`、`bin/` 等构建产物
+- OpenIM 业务镜像（`openim-server`/`chat`：由官方镜像拉取，需能访问镜像仓库）
 
 ---
 
 ## 二、部署
 
-**看 [DEPLOY.md](DEPLOY.md)** —— Docker 部署指南，三步跑起来（一条命令启动后端）。
+**看 [DEPLOY.md](DEPLOY.md)** —— clone 一次 + 一条命令，前后端全起来（本地只需 Docker）。
 
 ```bash
-cd oa-custom/deploy && bash deploy.sh bootstrap
+git clone https://github.com/liang-mg/openim.git && cd openim
+bash deploy/deploy.sh bootstrap
+# 打开 http://127.0.0.1:5173
 ```
 
 日常运维、生产配置、故障排查都在 DEPLOY.md，本文不重复，避免两边不同步。

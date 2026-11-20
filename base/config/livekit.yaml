@@ -1,0 +1,28 @@
+# LiveKit SFU 服务配置（语音/视频通话媒体服务器）
+# key/secret 必须与 openim-chat 的 chat-rpc-chat.yml -> liveKit 段完全一致
+port: 7880
+
+rtc:
+  # WebRTC over TCP 回退端口（UDP 被防火墙拦截时走这里）
+  tcp_port: 7881
+  # WebRTC 媒体端口（UDP，单端口复用，必须映射到宿主机）
+  udp_port: 7882
+  # 不对公网自动探测；局域网/本机部署用 node_ip 指定浏览器可访问的地址
+  use_external_ip: false
+  # 改成运行 Docker 这台机器的局域网 IP（浏览器从这里拉流）
+  node_ip: 127.0.0.1
+
+keys:
+  APIGPW3gnFTzqHH: 23ztfSqsfQ8hKkHzHTl3Z4bvaxro0snjk5jwbp5p6Q3
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  max_participants: 20
+
+turn:
+  enabled: false
+
+logging:
+  level: info
+  json: false

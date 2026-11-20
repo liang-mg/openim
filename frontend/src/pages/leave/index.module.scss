@@ -1,0 +1,208 @@
+/* 请假与补卡：申请 + 审批。样式沿用出勤页的骨架（蓝顶栏 + 灰底内容） */
+
+.lv-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-layout, #f4f6fa);
+  display: flex;
+  flex-direction: column;
+}
+
+.lv-topbar {
+  flex: 0 0 auto;
+  height: 56px;
+  min-height: 56px;
+  background: #0b5fd8;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  gap: 16px;
+}
+
+.lv-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 17px;
+  font-weight: 600;
+
+  span:first-of-type {
+    cursor: pointer;
+  }
+}
+
+.lv-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  button {
+    border-radius: 6px;
+  }
+}
+
+.lv-subbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  background: #fff;
+  border-bottom: 1px solid #eef1f6;
+}
+
+/* 视图切换：选中蓝底白字（同出勤页，避免白底叠白底没高亮） */
+.lv-segmented {
+  :global(.ant-segmented) {
+    background: #eef2f8;
+    padding: 3px;
+    border-radius: 9px;
+  }
+
+  :global(.ant-segmented-item) {
+    color: #4a5a75;
+    font-weight: 500;
+    border-radius: 7px;
+  }
+
+  :global(.ant-segmented-item-label) {
+    padding: 0 14px;
+  }
+
+  :global(.ant-segmented-sm) :global(.ant-segmented-item-label) {
+    padding: 0 10px;
+  }
+
+  :global(.ant-segmented-item:not(.ant-segmented-item-selected):hover) {
+    color: #0b5fd8;
+    background: rgba(0, 137, 255, 0.1);
+  }
+
+  :global(.ant-segmented-item.ant-segmented-item-selected) {
+    background: #0b5fd8 !important;
+    color: #fff !important;
+    box-shadow: 0 2px 6px rgba(11, 95, 216, 0.26);
+  }
+
+  :global(.ant-segmented-item.ant-segmented-item-selected:hover) {
+    background: #0b5fd8 !important;
+    color: #fff !important;
+  }
+
+  :global(.ant-segmented-thumb) {
+    background: #0b5fd8;
+    border-radius: 7px;
+  }
+}
+
+.lv-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 24px 40px;
+}
+
+.lv-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.lv-section {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 18px 6px;
+  margin-bottom: 16px;
+}
+
+.lv-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #12233f;
+  padding-bottom: 12px;
+}
+
+.lv-count {
+  display: inline-block;
+  min-width: 22px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  margin-left: 8px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0b5fd8;
+  background: #eaf1ff;
+  border-radius: 10px;
+}
+
+.lv-table {
+  :global(.ant-table-thead > tr > th) {
+    background: #f7f9fc;
+    font-weight: 600;
+    color: #4a5a75;
+  }
+
+  :global(.ant-table-cell) {
+    font-size: 13px;
+    color: #1f2d45;
+  }
+}
+
+.cell-mono {
+  font-variant-numeric: tabular-nums;
+  color: #12233f;
+}
+
+.op-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  a {
+    font-size: 12px;
+    color: #0089ff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+}
+
+.op-comment {
+  font-size: 12px;
+  color: #8a96ab;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-hint {
+  font-size: 12px;
+  color: #8a96ab;
+  line-height: 1.7;
+  padding: 0 4px;
+}
+
+.approval-tip {
+  font-size: 13px;
+  color: #6b7a93;
+  margin-bottom: 10px;
+}
+
+@media only screen and (max-width: 900px) {
+  .lv-subbar {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+  }
+
+  .lv-body {
+    padding: 16px 12px 32px;
+  }
+}

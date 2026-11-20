@@ -25,9 +25,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"              # oa-custom 根目录
-ROOT="$(cd "$OA_DIR/.." && pwd)"                    # 官方底座根目录
+BASE_DIR="$OA_DIR/base"                             # 仓库自带的官方底座（compose + config）
 COMPOSE_OA="$OA_DIR/deploy/docker-compose.oa.yaml"
-ENV_FILE="${OA_ENV:-$ROOT/.env}"
+ENV_FILE="${OA_ENV:-$OA_DIR/.env}"
 ENV_TEMPLATE="$OA_DIR/config-template/oa.env.example"
 
 ok()   { printf '  [OK] %s\n' "$*"; }
@@ -35,13 +35,13 @@ warn() { printf '[WARN] %s\n' "$*"; }
 fail() { printf '[FAIL] %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 
-# 探测官方 compose 文件
+# 探测底座 compose：优先用仓库自带的 base/，同事无需再 clone 官方底座
 detect_compose() {
   if [ -n "${OA_COMPOSE:-}" ]; then echo "$OA_COMPOSE"; return; fi
-  for c in "$ROOT/docker-compose.yaml" "$ROOT/docker-compose.yml"; do
+  for c in "$BASE_DIR/docker-compose.yaml" "$BASE_DIR/docker-compose.yml"; do
     [ -f "$c" ] && { echo "$c"; return; }
   done
-  fail "未找到官方 docker-compose.yaml。请在 openim-docker 根目录执行，或设 OA_COMPOSE 指定路径。"
+  fail "未找到底座 compose（$BASE_DIR/docker-compose.yaml），检查仓库是否完整。"
 }
 
 # compose 统一入口：官方 + OA override
@@ -57,9 +57,9 @@ preflight() {
   # Go 编译已内置到 Dockerfile 多阶段构建，宿主机无需安装 Go
   [ -f "$COMPOSE_OA" ] || fail "缺少 $COMPOSE_OA，检查仓库是否完整。"
   [ -f "$ENV_TEMPLATE" ] || fail "缺少配置模板 $ENV_TEMPLATE。"
-  [ -f "$(detect_compose)" ] || fail "官方底座 compose 不存在。"
+  [ -f "$(detect_compose)" ] || fail "底座 compose 不存在（$BASE_DIR）。"
   ok "docker / compose / 模板 均就绪（Go 编译在镜像内完成，无需本地安装）"
-  ok "官方底座: $ROOT"
+  ok "底座目录: $BASE_DIR"
   ok "OA 仓库:   $OA_DIR"
 }
 
@@ -100,43 +100,58 @@ prepare_env() {
   fi
 }
 
-# 构建镜像（Dockerfile 多阶段构建会在镜像内完成 Go 编译，无需本地 Go）
-build_image() {
+# 构建后端镜像（Dockerfile 多阶段构建在镜像内完成 Go 编译，无需本地 Go）
+build_backend_image() {
   step "构建 xinbo-oa:local 镜像（镜像内编译 Go 后端）"
   docker build \
     --build-arg "GOPROXY=${GOPROXY:-https://goproxy.cn,direct}" \
     -t xinbo-oa:local "$OA_DIR/backend" >/dev/null \
-    || fail "镜像构建失败（Go 编译在镜像内进行，检查网络/GOPROXY）。"
+    || fail "后端镜像构建失败（检查网络/GOPROXY）。"
   ok "镜像 xinbo-oa:local 已就绪"
+}
+
+# 构建前端镜像（Node 构建 + nginx 全在镜像内，无需本地 Node/pnpm）
+build_web_image() {
+  step "构建 xinbo-oa-web:local 镜像（镜像内 pnpm install + vite build）"
+  docker build -t xinbo-oa-web:local "$OA_DIR/frontend" >/dev/null \
+    || fail "前端镜像构建失败（检查网络/npm registry）。"
+  ok "镜像 xinbo-oa-web:local 已就绪"
+}
+
+build_all_images() {
+  build_backend_image
+  build_web_image
 }
 
 do_build() {
   preflight
-  build_image
+  build_all_images
 }
 
 do_bootstrap() {
   step "OA 环境一键部署（首次全流程）"
   preflight
   prepare_env
-  build_image
+  build_all_images
 
   step "启动依赖底座（mongo / minio）"
   local base; base="$(detect_compose)"
   docker compose -f "$base" --env-file "$ENV_FILE" up -d mongo minio \
     || fail "mongo/minio 启动失败，检查 $ENV_FILE 密码配置。"
 
-  step "启动 OA 服务"
-  compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa \
+  step "启动 OA 服务 + 前端"
+  compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web \
     || fail "OA 服务启动失败，执行 deploy.sh logs 查看日志。"
 
   verify
   echo ""
   echo "============================================================"
   ok "OA 环境已就绪"
-  echo "  后端健康检查: http://127.0.0.1:${XINBO_OA_PORT:-10010}/oa/api/v1/healthz"
-  echo "  前端: 在 openim-electron-demo 执行 pnpm dev，打开 http://127.0.0.1:5173"
-  echo "  回归: node oa-custom/scripts/oa_e2e_check.js"
+  echo "  前端页面:   http://127.0.0.1:${XINBO_OA_WEB_PORT:-5173}"
+  echo "  后端健康:   http://127.0.0.1:${XINBO_OA_PORT:-10010}/oa/api/v1/healthz"
+  echo "  验证接口:   curl http://127.0.0.1:${XINBO_OA_WEB_PORT:-5173}/oa/api/v1/healthz"
+  echo "  回归脚本:   node scripts/oa_e2e_check.js（需设 OA_TOKEN_SECRET/MONGO_PASSWORD）"
+  echo "  登录验证码: 666666（需 IM 服务 openim-server/openim-chat 已启动）"
   echo "============================================================"
 }
 
@@ -144,16 +159,35 @@ verify() {
   step "验收检查"
   local port; port="$(grep -E '^XINBO_OA_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r')"
   port="${port:-10010}"
+  local web_port; web_port="$(grep -E '^XINBO_OA_WEB_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 | tr -d '\r')"
+  web_port="${web_port:-5173}"
   local url="http://127.0.0.1:${port}/oa/api/v1/healthz"
 
-  compose ps xinbo-oa 2>/dev/null | grep -q 'xinbo-oa' \
+  compose ps 2>/dev/null | grep -qE 'xinbo-oa|oa-web' \
     && ok "容器已创建" || warn "容器状态异常，执行 deploy.sh status"
 
+  local backend_ok=0
   for i in $(seq 1 20); do
-    if curl -fsS "$url" >/dev/null 2>&1; then ok "健康检查通过: $url"; return 0; fi
+    if curl -fsS "$url" >/dev/null 2>&1; then ok "后端健康检查通过: $url"; backend_ok=1; break; fi
     sleep 2
   done
-  fail "健康检查失败（40 秒内无响应）。执行 deploy.sh logs 排查。"
+  [ "$backend_ok" -eq 1 ] || fail "后端健康检查失败（40 秒无响应）。执行 deploy.sh logs 排查。"
+
+  # 前端：首页能返回 HTML，且同源 /oa 反代能通到后端
+  local web_ok=0
+  for i in $(seq 1 20); do
+    if curl -fsS "http://127.0.0.1:${web_port}/" 2>/dev/null | grep -qi '<html'; then
+      ok "前端首页可访问: http://127.0.0.1:${web_port}"
+      web_ok=1; break
+    fi
+    sleep 2
+  done
+  [ "$web_ok" -eq 1 ] || warn "前端首页暂不可访问（构建较慢），执行 deploy.sh logs oa-web 查看。"
+  if curl -fsS "http://127.0.0.1:${web_port}/oa/api/v1/healthz" >/dev/null 2>&1; then
+    ok "前端 /oa 同源反代正常"
+  else
+    warn "前端 /oa 反代未通，检查 oa-web 与 xinbo-oa 是否同在 openim 网络。"
+  fi
 }
 
 cmd="${1:-bootstrap}"
@@ -162,13 +196,13 @@ case "$cmd" in
   build)     do_build ;;
   up)
     preflight
-    compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa
+    compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web
     verify
     ;;
   down)      preflight; compose --env-file "$ENV_FILE" down ;;
-  restart)   preflight; compose --env-file "$ENV_FILE" restart xinbo-oa; verify ;;
-  status)    preflight; compose --env-file "$ENV_FILE" ps xinbo-oa ;;
-  logs)      preflight; compose --env-file "$ENV_FILE" logs -f --tail=200 xinbo-oa ;;
+  restart)   preflight; compose --env-file "$ENV_FILE" restart xinbo-oa oa-web; verify ;;
+  status)    preflight; compose --env-file "$ENV_FILE" ps ;;
+  logs)      preflight; compose --env-file "$ENV_FILE" logs -f --tail=200 "${2:-xinbo-oa}" ;;
   verify)    preflight; verify ;;
   *)
     echo "用法: deploy.sh {bootstrap|up|down|restart|build|status|logs|verify}" >&2
