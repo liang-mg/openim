@@ -5,12 +5,12 @@
 const crypto = require('crypto');
 const {
   chromium,
-} = require('D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core');
+} = require('./lib/playwright-env');
 
 const OA = 'http://127.0.0.1:10010/oa/api/v1';
 const BASE = 'http://127.0.0.1:5173/';
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const OUT = 'D:/work/openim/openim-docker-latest/output/';
+const CHROME = require('./lib/playwright-env').CHROME;
+const OUT = require('./lib/playwright-env').OUT;
 const SECRET = 'chat123';
 
 const UID = {

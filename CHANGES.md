@@ -73,3 +73,12 @@
 - `scripts/oa_electron_package_check.js`（新增）：打包完整性回归，逐个验证运行时依赖在 asar 内有物理文件，并单独点名易漏模块。对最新 Windows 包验证结果 **39/39 通过**。
   - 用法：先在开发机大仓打包，再 `node scripts/oa_electron_package_check.js <app路径>`；`<app路径>` 为 `src/openim-electron-demo` 的绝对路径（也支持 `OA_ELECTRON_APP` 环境变量）。
 - 打包期 `file source doesn't exist ... node_modules/rxjs` 是无害告警：`rxjs` 不在运行时依赖清单、也无代码引用，可忽略。
+
+---
+
+## 五、协作可移植性修复（2026-11-20）
+
+- `scripts/lib/playwright-env.js`（新增）：统一管理 playwright-core 加载、截图输出目录、Chrome 路径，支持 `PLAYWRIGHT_CORE` / `CHROME_PATH` / `OA_OUTPUT_DIR` 覆盖。
+- 8 个 UI 回归脚本：去掉写死的 `D:/work/...`、`C:/Program Files/...` 路径，改走公共库；同事 clone 后只需在 `frontend/` 执行 `pnpm i` 即可跑。实跑 `oa_attendance_ui_check.js` 验证 **14/14 通过**。
+- `scripts/sync-frontend.mjs`（新增）：本机大仓 `src/openim-electron-demo` 与仓库 `frontend/` 双向同步（status / to-repo / to-local，支持 --dry-run），只覆盖源码、不删产物和密钥。
+- `README.md`：新增「二、本机目录与仓库对照（协作必读）」，说明两边目录映射、为什么产物不入库、同事开发/回归/同步流程；后续章节重新编号。

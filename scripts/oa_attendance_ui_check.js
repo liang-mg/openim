@@ -4,11 +4,11 @@
 // 只读接口，不写数据，跑完无需清理
 const {
   chromium,
-} = require("D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core");
+} = require('./lib/playwright-env');
 
-const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
+const CHROME = require('./lib/playwright-env').CHROME;
 const BASE = "http://127.0.0.1:5173/";
-const OUT = "D:/work/openim/openim-docker-latest/output/";
+const OUT = require('./lib/playwright-env').OUT;
 
 let pass = 0;
 let fail = 0;

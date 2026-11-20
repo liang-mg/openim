@@ -2,7 +2,7 @@
 // 桌面端 OA 四页联调截图：验证码登录后依次访问工作台/打卡/日报/查阅
 const {
   chromium,
-} = require('playwright-core');
+} = require('./lib/playwright-env');
 
 const CHROME = process.env.CHROME_PATH || ''; // 留空用 playwright 自带 chromium
 const OUT = require('path').resolve(__dirname, '../output') + require('path').sep;

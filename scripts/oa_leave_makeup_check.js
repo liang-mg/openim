@@ -3,14 +3,14 @@
  * 用法：node scripts/oa_leave_makeup_check.js
  * 覆盖：员工申请 → 组长审批 → 通过后进统计 → 工作台待办 → 权限；自清理
  */
-const { chromium } = require("D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core");
+const { chromium } = require('./lib/playwright-env');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
 
 const BASE = "http://127.0.0.1:5173/";
 const OA = "http://127.0.0.1:10010/oa/api/v1";
-const CHROME = "C:/Program Files/Google/Chrome/Application/chrome.exe";
-const OUT = "D:/work/openim/openim-docker-latest/output/";
+const CHROME = require('./lib/playwright-env').CHROME;
+const OUT = require('./lib/playwright-env').OUT;
 const PHONE = { liran: "12345678001", qiang: "12345678912", manager: "19306860353" };
 
 const b64 = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

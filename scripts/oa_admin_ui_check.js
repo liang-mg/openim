@@ -2,10 +2,10 @@
 // 员工管理页交互验证：添加 -> 编辑改角色 -> 停用
 const {
   chromium,
-} = require('D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core');
+} = require('./lib/playwright-env');
 
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const OUT = 'D:/work/openim/openim-docker-latest/output/';
+const CHROME = require('./lib/playwright-env').CHROME;
+const OUT = require('./lib/playwright-env').OUT;
 const BASE = 'http://127.0.0.1:5173/';
 const PHONE = '19306860353';
 

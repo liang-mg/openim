@@ -2,12 +2,12 @@
 // 批次1 前端验证：附件真实上传 + 附件下载 + 打卡照片存档
 const {
   chromium,
-} = require('D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core');
+} = require('./lib/playwright-env');
 
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = require('./lib/playwright-env').CHROME;
 const BASE = 'http://127.0.0.1:5173/';
-const OUT = 'D:/work/openim/openim-docker-latest/output/';
-const ATTACH = 'D:/work/openim/openim-docker-latest/output/_upload-demo.png';
+const OUT = require('./lib/playwright-env').OUT;
+const ATTACH = OUT + '_upload-demo.png';
 
 let pass = 0, fail = 0;
 const check = (name, ok, extra = '') => {

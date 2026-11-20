@@ -9,6 +9,7 @@
 |---|---|
 | **这套系统现在有什么**：13 个模块、45 个接口、9 张数据表、角色权限矩阵、还没做的部分 | **[docs/OA功能清单-已开发.md](docs/OA功能清单-已开发.md)** |
 | **怎么把它跑起来**：clone + 一条命令、生产配置、故障排查 | **[DEPLOY.md](DEPLOY.md)** |
+| **同事 clone 后目录对不上 / 两边代码怎么同步** | 本文件「二、本机目录与仓库对照」 |
 | 测试账号、谁登录能看什么 | [docs/OA测试账号与权限说明.md](docs/OA测试账号与权限说明.md) |
 | 打卡 / 考勤 / 异常 / 审批的详细设计 | [docs/打卡功能-详细设计.md](docs/打卡功能-详细设计.md) |
 | **Windows/macOS 桌面端**：怎么用、怎么打包、怎么分发 | **[docs/桌面端部署与分发.md](docs/桌面端部署与分发.md)** |
@@ -24,7 +25,7 @@
 | `frontend/` | **完整前端源码，已含全部 OA 页面**，可直接构建镜像 | 已应用 `frontend-patch/` 的改动 |
 | `frontend-patch/` | OA 页面与改动文件清单（对账用，`frontend/` 已应用） | 前端改动的原始补丁记录 |
 | `docs/` | OA 设计文档、排期、账号说明、日报 | 自建 |
-| `scripts/` | OA 接口/UI 回归脚本（21 个） | 自建 |
+| `scripts/` | OA 接口/UI 回归脚本 + 前端双向同步脚本 | 自建 |
 | `config-template/` | 脱敏的环境变量模板 | 自建 |
 | `deploy/` | **一键部署脚本 + compose override** | 自建 |
 
@@ -35,7 +36,62 @@
 
 ---
 
-## 二、部署
+## 二、本机目录与仓库对照（协作必读）
+
+同事 clone 后只有 `openim/` 一个仓库目录，看不到你本机的 `openim-docker-latest/src/...` 大仓布局——这是正常的。两边是**同一份源码的两处工作副本**，不是两套系统。
+
+| 本机（你） | 仓库（同事 clone 后） | 说明 |
+|---|---|---|
+| `openim-docker-latest/src/openim-electron-demo/` | `frontend/` | 同一份前端源码（已逐文件核对一致）；本机额外有 `node_modules/`、`dist/`、`dist-electron/`、`release/`、`.env.local`，按约定不入库 |
+| `openim-docker-latest/src/xinbo-oa/` | `backend/` | OA 后端源码 |
+| `openim-docker-latest/base/` | `base/` | 服务编排与配置快照 |
+| `openim-docker-latest/scripts/oa_*.js` | `scripts/` | 回归脚本（已改为可移植，自动找依赖/浏览器） |
+| `openim-docker-latest/output/` | 不入库 | 回归截图/附件，运行时自动生成 |
+
+**为什么文件夹不一样**：`node_modules/`（几百 MB 依赖）、`dist/`（构建产物）、`release/`（安装包）、`.env.local`（密钥）都不该进 git。仓库存的是干净源码，clone 后本地装依赖、构建即可；同事不需要再 clone 大仓，也不需要本地装 Go（后端走 Docker 镜像构建）。
+
+### 同事 clone 后怎么开发
+
+```bash
+git clone https://github.com/liang-mg/openim.git && cd openim
+cd frontend
+corepack pnpm i          # 装依赖，回归脚本会自动从这里找 playwright
+npx vite build           # 构建 Web + Electron 产物
+# 后端改 backend/ 下的 Go 代码；本地无需装 Go，一键命令走 Docker 构建
+bash ../deploy/deploy.sh bootstrap
+```
+
+### 回归脚本（同事机器直接可跑）
+
+```bash
+cd openim
+node scripts/oa_attendance_ui_check.js   # 需 5173/10010 已启动
+```
+
+脚本会**自动探测** playwright-core 和系统 Chrome，也支持显式覆盖：
+
+| 环境变量 | 作用 |
+|---|---|
+| `PLAYWRIGHT_CORE=<目录>` | 指定 playwright-core 路径（默认从 `frontend/node_modules` 或本机大仓找） |
+| `CHROME_PATH=<exe>` | 指定浏览器；不设则找系统 Chrome，找不到用 playwright 自带 chromium |
+| `OA_OUTPUT_DIR=<目录>` | 截图输出目录，默认 `openim/output/` |
+
+### 两边代码怎么保持同步
+
+本机大仓与协作仓是**两个独立 git 仓库**，改动必须显式同步，否则同事拿到的不是你打包的那份：
+
+```bash
+cd openim-docker-latest/oa-custom
+node scripts/sync-frontend.mjs status       # 先看差异
+node scripts/sync-frontend.mjs to-repo      # 本机改完后 -> 仓库，再 git add/commit/push
+node scripts/sync-frontend.mjs to-local     # 同事提交后你 pull，再同步回本机打包
+```
+
+同步脚本只覆盖源码文件，**不删除**目标里多出来的产物/密钥；`node_modules`/`dist`/`release`/`.env*` 永远不参与同步。
+
+---
+
+## 三、部署
 
 **看 [DEPLOY.md](DEPLOY.md)** —— clone 一次 + 一条命令，前后端全起来（本地只需 Docker）。
 
@@ -69,7 +125,7 @@ node scripts/electron-build.mjs --skip-build --mac --arm64  # macOS（Apple 芯�
 
 产物在 `frontend/release/Base/3.8.3/`。`--skip-build` 用于复用已构建产物、避开重复构建；沙箱环境构建用 `npx vite build`（vite 配置已设 `emptyOutDir:false`）。使用与分发细节见 [docs/桌面端部署与分发.md](docs/桌面端部署与分发.md)。
 
-## 三、开发约定（必读）
+## 四、开发约定（必读）
 
 1. **先全局设计，后写代码**：每个功能开工前回答 8 条检查——数据表、记录表先行、四视角（本人/组长/领导/HR）、上下游消费、统计口径唯一、状态机、边界、测试文档同步。详见 `docs/OA剩余开发清单与排期.md` 开头。
 2. **权限统一**：凡是「谁能看谁的数据」，一律走后端 `visibleUserIDs(ctx, uid, scope)`，不要在新接口里另写角色判断。
@@ -80,7 +136,7 @@ node scripts/electron-build.mjs --skip-build --mac --arm64  # macOS（Apple 芯�
 
 ---
 
-## 四、Git 协作规范
+## 五、Git 协作规范
 
 ```bash
 # 分支
@@ -102,7 +158,7 @@ test: 补团队出勤回归
 
 ---
 
-## 五、部署环境差异（补充）
+## 六、部署环境差异（补充）
 
 | 项 | dev（本地） | prod（部署） |
 |---|---|---|
@@ -113,7 +169,7 @@ test: 补团队出勤回归
 
 ---
 
-## 六、常见坑
+## 七、常见坑
 
 - Go 编译已内置到 `backend/Dockerfile` 多阶段构建，本地无需安装 Go。
 - MinIO 桶名必须 ≥3 字符（`oa` 会报错），本项目用 `xinbo-oa`。

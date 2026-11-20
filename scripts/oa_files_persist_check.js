@@ -2,12 +2,12 @@
 // 持久化验证：提交带附件的日报 → 刷新页面 → 附件仍在且缩略图能加载 → 领导能下载
 const {
   chromium,
-} = require('D:/work/openim/openim-docker-latest/src/openim-electron-demo/node_modules/.pnpm/playwright-core@1.61.1/node_modules/playwright-core');
+} = require('./lib/playwright-env');
 const crypto = require('crypto');
 
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = require('./lib/playwright-env').CHROME;
 const BASE = 'http://127.0.0.1:5173/';
-const OUT = 'D:/work/openim/openim-docker-latest/output/';
+const OUT = require('./lib/playwright-env').OUT;
 const ATTACH = OUT + '_upload-demo.png';
 
 let pass = 0, fail = 0;
