@@ -121,3 +121,14 @@
 - **修复**：`serverConfig.ts` 标准端口模式 `oaApi` 改为 `${http(PORTS.oa)}/oa/api/v1`（反代模式本来就是 `/oa/api/v1`，无需改）。一处修复覆盖全部 OA 调用（所有接口都基于 `oaApi`）。
 - **回归**：`oa_desktop_config_check.js` 原断言写死了错误值 `...:10010/api/v1`，等于把 bug 固化了；改为期望 `/oa/api/v1` 并新增源码断言，镜像实现同步修正，**33/33 通过**。
 - **验证**（CDP + win-unpacked，刘洋登录）：报告查阅徽章显示「组长视角」、列表正常加载；出勤记录页数据正常、网络错误 0；`checkin/report` 等接口直连均 200。
+
+---
+
+## 九、品牌名「新搏」统一改为「新博」（2026-11-20）
+
+- 用户要求：品牌字「搏」改为「博」，全仓库统一，单个「搏」字（如 emoji 注释「搏动」）不动。
+- **文本替换**（共 52 个文件）：`electron-builder.json5`（productName/shortcutName）、`index.html` title、`package.json` description、`windowManage.ts` 标题、`config/index.ts` APP_NAME、`i18n/zh.json` 欢迎语与二维码提示、全部 `docs/*.md`、安卓 `strings.xml`/`MainActivity.java`、uniapp `manifest.json`/`pages.json`、`docker-compose.frontend.yaml`、`frontend-custom/` 产物、`patch_brand.js` / `patch_brand_admin.js` 品牌脚本（含 unicode 转义 `\u640F`→`\u535A`，并保留旧值 `\u640F` 兼容规则以纠正历史产物）。
+- **图标重制**：`make_brand_icons.js` 的源 `icon-source.html` / `logo-vertical-source.html` 改为「新博」后重新渲染 icon-512/192/…；用 PIL 生成 Electron 的 `icon.png`(256)/`mac_icon.png`(512)/`icon.ico`(多尺寸)，覆盖 `public/icons/` 与 `dist/icons/`；`docs/brand/logo-xinbo.png` 替换为新图标。
+- **截图更新**：三张旧版登录截图（含已删除的邮箱/验证码）用当前真实登录页重拍覆盖（显示「欢迎来到新博」「新博 v3.8.3」）。
+- **验证**：CDP 实测新包 title=「新博」、欢迎语「欢迎来到新博」、版本「新博 v3.8.3」、旧品牌 `old=false`；全仓文本无「新搏」残留（排除 memory 历史日志与 emoji「搏动」）。
+- 新包：`新博_3.8.3.exe`（15:23，82.4MB）；旧 `新搏_3.8.3.exe` 移入 `release/Base/3.8.3/deprecated/`，避免误点。

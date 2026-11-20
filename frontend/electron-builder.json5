@@ -3,7 +3,7 @@
  */
 {
   appId: "io.xinbo.desktop",
-  productName: "新搏",
+  productName: "新博",
   asar: true,
   asarUnpack: ["**/*.node"],
   extends: null,
@@ -85,6 +85,6 @@
     createDesktopShortcut: true,
     createStartMenuShortcut: true,
     deleteAppDataOnUninstall: true,
-    shortcutName: "新搏",
+    shortcutName: "新博",
   },
 }
