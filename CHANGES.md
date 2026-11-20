@@ -110,3 +110,14 @@
 - `scripts/oa_desktop_config_check.js`：新增源码一致性断言（内置常量存在、桌面模式用内置地址、登录页无 serverHost 字段/无 needServerHost），共 **32/32 通过**。
 - CDP 端到端验证（win-unpacked）：登录页 `hasServerLabel=false`、inputs 仅账号+密码、`electronAPI=object`、preload 报错 0；填 `12345678003`/`Xinbo@2026` 直接登录成功进入 `#/chat`。
 - 文档同步：`docs/桌面端部署与分发.md`、`README.md` 改为"地址内置、打包方改常量"的说明。
+
+---
+
+## 八、修复桌面端全部 OA 接口 404 / 报告查阅判无权（2026-11-20）
+
+- 用户反馈（桌面端）：刘洋（role=manager，组长）报告查阅页显示「独立页面 / 报告查阅仅组长与领导可用」，出勤记录页弹 `Request failed with status code 404`。
+- **根因**：后端 OA 路由注册在 `/oa/api/v1`（`internal/api/router.go` 的 `r.Group("/oa/api/v1")`）。Web 端靠 vite 代理的 `/oa` 前缀补齐，所以正常；桌面端标准端口模式直连 `127.0.0.1:10010` 时，`resolveServerURLs()` 派生出的 `oaApi` 是 `http://host:10010/api/v1`——**漏了 `/oa`**，导致所有 OA 接口 404。`/me` 404 → `getMe()` 抛错 → `me=null` → `canView=false` → 报告查阅误判为无权。
+- **证据**：`curl http://127.0.0.1:10010/api/v1/me` → 404；`curl http://127.0.0.1:10010/oa/api/v1/me` → 200（业务 401=未带 token，属正常）。数据库 `oa_employee` 中刘洋 `role=manager` 正确，排除数据问题。
+- **修复**：`serverConfig.ts` 标准端口模式 `oaApi` 改为 `${http(PORTS.oa)}/oa/api/v1`（反代模式本来就是 `/oa/api/v1`，无需改）。一处修复覆盖全部 OA 调用（所有接口都基于 `oaApi`）。
+- **回归**：`oa_desktop_config_check.js` 原断言写死了错误值 `...:10010/api/v1`，等于把 bug 固化了；改为期望 `/oa/api/v1` 并新增源码断言，镜像实现同步修正，**33/33 通过**。
+- **验证**（CDP + win-unpacked，刘洋登录）：报告查阅徽章显示「组长视角」、列表正常加载；出勤记录页数据正常、网络错误 0；`checkin/report` 等接口直连均 200。

@@ -191,7 +191,10 @@ export const resolveServerURLs = (host?: string, forceBrowser = false): ServerUR
     api: http(PORTS.api),
     ws: ws(PORTS.ws),
     chat: http(PORTS.chat),
-    oaApi: `${http(PORTS.oa)}/api/v1`,
+    // 后端 OA 路由注册在 /oa/api/v1（见 router.go 的 r.Group("/oa/api/v1")），
+    // Web 端靠 vite 代理的 /oa 前缀补齐，桌面端直连 10010 必须自己带上 /oa，
+    // 否则全部 OA 接口 404（/me 返回 404 → 身份判不出来 → 报告查阅看成无权）。
+    oaApi: `${http(PORTS.oa)}/oa/api/v1`,
     oss: http(PORTS.oss),
     livekit: ws(PORTS.livekit),
   };

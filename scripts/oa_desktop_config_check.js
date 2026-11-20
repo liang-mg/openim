@@ -79,7 +79,7 @@ function resolve(host) {
   const ws = (port) => `ws://${h}:${port}`;
   return {
     api: http(PORTS.api), ws: ws(PORTS.ws), chat: http(PORTS.chat),
-    oaApi: `${http(PORTS.oa)}/api/v1`, oss: http(PORTS.oss), livekit: ws(PORTS.livekit),
+    oaApi: `${http(PORTS.oa)}/oa/api/v1`, oss: http(PORTS.oss), livekit: ws(PORTS.livekit),
   };
 }
 
@@ -93,7 +93,7 @@ const std = resolve("oa.company.com");
 check("域名 - IM API", std.api, "http://oa.company.com:10002");
 check("域名 - 消息 WS", std.ws, "ws://oa.company.com:10001");
 check("域名 - Chat", std.chat, "http://oa.company.com:10008");
-check("域名 - OA API", std.oaApi, "http://oa.company.com:10010/api/v1");
+check("域名 - OA API（直连必须带 /oa 前缀，与后端 r.Group(\"/oa/api/v1\") 一致）", std.oaApi, "http://oa.company.com:10010/oa/api/v1");
 check("域名 - 文件", std.oss, "http://oa.company.com:10005");
 check("域名 - 音视频", std.livekit, "ws://oa.company.com:7880");
 
@@ -126,6 +126,7 @@ for (const [name, token] of [
   ["派生函数", "export const resolveServerURLs"],
   ["切服务器清 token", "clearIMProfile()"],
   ["内置服务器地址常量", "export const BUILTIN_SERVER_HOST"],
+  ["直连 OA 带 /oa 前缀", "oaApi: `${http(PORTS.oa)}/oa/api/v1`"],
   ["桌面模式用内置地址", "parseHost(host ?? BUILTIN_SERVER_HOST)"],
 ]) {
   check(`源码含 ${name}`, source.includes(token), true);
