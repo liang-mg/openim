@@ -1,6 +1,6 @@
 # OpenIM OA 二开 · 协作仓库
 
-> **clone 本仓库 + 一条命令即可部署**：官方底座（compose/config）和打好补丁的前端完整源码都已打包进来，不用再 clone 任何官方仓库。
+> **clone 本仓库 + 一条命令即可部署**：服务编排（compose/config）和完整前端源码都已打包进来，clone 本仓库即可，无需再拉其他代码。
 > 自建业务代码在 `backend/`；`base/` 和 `frontend/` 是随仓库附带的底座与前端快照。
 
 ---
@@ -10,9 +10,9 @@
 | 目录 | 内容 | 来源 |
 |---|---|---|
 | `backend/` | 完整 OA 后端服务（Go/Gin/MongoDB/MinIO） | 自建 |
-| `base/` | 官方底座 `docker-compose.yaml` + `config/` | 官方 openim-docker 快照 |
-| `frontend/` | **完整前端源码，已含全部 OA 页面**，可直接构建镜像 | 官方 demo + `frontend-patch/` 补丁 |
-| `frontend-patch/` | OA 页面与改动文件清单（对账用，`frontend/` 已应用） | 基于官方 `openim-electron-demo` |
+| `base/` | 服务编排 `docker-compose.yaml` + `config/` | 随仓库附带的编排快照 |
+| `frontend/` | **完整前端源码，已含全部 OA 页面**，可直接构建镜像 | 已应用 `frontend-patch/` 的改动 |
+| `frontend-patch/` | OA 页面与改动文件清单（对账用，`frontend/` 已应用） | 前端改动的原始补丁记录 |
 | `docs/` | OA 设计文档、排期、账号说明、日报 | 自建 |
 | `scripts/` | OA 接口/UI 回归脚本（19 个） | 自建 |
 | `config-template/` | 脱敏的环境变量模板 | 自建 |
@@ -21,7 +21,7 @@
 **不在本仓库**：
 - 真实 `.env`、`.env.local`（含密钥，禁止入库；由部署脚本生成）
 - `node_modules/`、`dist/`、`bin/` 等构建产物
-- OpenIM 业务镜像（`openim-server`/`chat`：由官方镜像拉取，需能访问镜像仓库）
+- OpenIM 业务镜像（`openim-server`/`chat`：由镜像仓库拉取，需能访问镜像仓库）
 
 ---
 
@@ -88,6 +88,6 @@ test: 补团队出勤回归
 - nginx `proxy_pass` 带尾斜杠会剥掉 `/oa` 前缀 → 生产 404，必须不带斜杠并 reload。
 - 前端 `onError` 内联回调会导致 `useEffect` 无限请求 → 用 `useRef` + `useCallback` + `reqId`。
 - flex 布局裁切 → 子项要加 `min-height:0`。
-- 一键脚本必须在**官方底座同级目录**执行（本仓库是它的子目录），否则 compose 找不到官方文件；可用 `OA_COMPOSE` 显式指定。
+- 一键脚本从仓库自带的 `base/` 读取服务编排；如需改用外部编排文件，可用 `OA_COMPOSE` 显式指定。
 - 生成的 `.env` 若改了 chat 配置里的 secret，必须同步改 `XINBO_OA_TOKEN_SECRET`，否则登录态校验失败、接口全部 401。
 - GOPROXY 不通时设 `GOPROXY=https://goproxy.cn,direct`，`deploy.sh build` 会透传给镜像构建。

@@ -1,12 +1,12 @@
-# 前端改动清单（相对官方 openim-electron-demo）
+# 前端改动清单
 
 > 基线 commit：`62d7ca7`（fix: resolve lint issues and stabilize Electron e2e）
-> 用法：`frontend-patch/` 里的文件直接覆盖到官方 demo 同名路径。
-> 「新增」= 官方没有，直接放进去；「修改」= 覆盖官方对应文件。
+> 说明：`frontend-patch/` 记录了对前端基线源码的全部改动；`frontend/` 已是应用后的完整源码。
+> 「新增」= 本次加入的页面/模块；「修改」= 在基线源码上改动的文件。
 
 ---
 
-## 一、新增文件 / 目录（官方没有）
+## 一、新增文件 / 目录
 
 | 路径 | 说明 |
 |---|---|
@@ -24,7 +24,7 @@
 
 ---
 
-## 二、修改的官方文件（需覆盖）
+## 二、改动的前端文件
 
 | 路径 | 改动摘要 |
 |---|---|
@@ -46,9 +46,9 @@
 
 ---
 
-## 三、升级官方版本时的对账步骤
+## 三、更新前端基线时的对账步骤
 
-1. 官方 demo 拉新 commit 后，先看上述「修改」文件是否有冲突。
-2. 重点检查 `src/routes/index.tsx`、`src/layout/LeftNavBar/index.tsx`、`src/App.tsx`——官方改这几个文件时我们的 OA 入口容易被冲掉。
-3. `src/api/oaApi.ts` 依赖 `imApi.ts` 的 token/base 地址，官方若改鉴权方式需同步适配。
+1. 更新前端基线后，先看上述「修改」文件是否有冲突。
+2. 重点检查 `src/routes/index.tsx`、`src/layout/LeftNavBar/index.tsx`、`src/App.tsx`——基线更新这几个文件时我们的 OA 入口容易被冲掉。
+3. `src/api/oaApi.ts` 依赖 `imApi.ts` 的 token/base 地址，基线若改鉴权方式需同步适配。
 4. 对账后跑 `oa-custom/scripts/oa_*_check.js` 全套回归，确认无回退。

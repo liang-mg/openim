@@ -1,7 +1,7 @@
 # Docker 部署指南（OA 二开）
 
 > **一句话**：clone 本仓库 → 一条命令 → 打开浏览器。
-> 官方底座 compose/config、前端完整源码都已打包进仓库，**不用再 clone 官方 openim-docker 和 openim-electron-demo**。
+> 服务编排（compose/config）和完整前端源码都已打包进仓库，clone 本仓库即可，**无需再拉其他代码**。
 
 ---
 
@@ -29,7 +29,7 @@ cd openim
 
 ```
 openim/
-├── base/            ← 官方底座 docker-compose.yaml + config/（不用 clone openim-docker）
+├── base/            ← 服务编排 docker-compose.yaml + config/（已随仓库附带）
 ├── frontend/        ← 完整前端源码，已含全部 OA 页面（不用 clone demo、不用打补丁）
 ├── backend/         ← OA 后端源码
 ├── deploy/          ← 一键脚本 + compose override
@@ -48,7 +48,7 @@ bash deploy/deploy.sh bootstrap
 
 登录验证码 `666666`（需要 IM 服务 openim-server / openim-chat 已启动）。新环境先按 `docs/OA测试账号与权限说明.md` 建档。
 
-> 如果只起了 OA 服务没起 IM，页面能打开但无法登录验证码。要么在官方底座里把 `openim-server` / `openim-chat` 起起来，要么只验证 OA 接口：`curl http://127.0.0.1:10010/oa/api/v1/healthz`。
+> 如果只起了 OA 服务没起 IM，页面能打开但无法登录验证码。要么把 `openim-server` / `openim-chat` 服务起起来，要么只验证 OA 接口：`curl http://127.0.0.1:10010/oa/api/v1/healthz`。
 
 ---
 
@@ -130,7 +130,7 @@ UI 脚本需 `playwright-core`（`pnpm add -D playwright-core`），可设 `CHRO
 
 ## 常见坑
 
-- **底座升级**：本仓库自带的 `base/` 是官方底座快照。升级官方版本时替换 `base/docker-compose.yaml` 和 `base/config/`，OA override 不用改。
+- **底座更新**：本仓库自带的 `base/` 是服务编排快照。需要更新时替换 `base/docker-compose.yaml` 和 `base/config/`，OA override 不用改。
 - **改了 chat secret 必须同步 `XINBO_OA_TOKEN_SECRET`**，否则接口全部 401。
 - **MinIO 桶名 ≥3 字符**（`oa` 会报错），本项目用 `xinbo-oa`。
-- **前端源码基线**：`frontend/` 基于官方 demo commit `62d7ca7` 打好补丁；`frontend-patch/` 保留作差异对账，见 `CHANGES.md`。
+- **前端源码基线**：`frontend/` 是已含全部 OA 改动的完整源码（基线 commit `62d7ca7`）；`frontend-patch/` 保留作改动对账，见 `CHANGES.md`。
