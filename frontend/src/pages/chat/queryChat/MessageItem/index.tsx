@@ -5,6 +5,7 @@ import { FC, memo, useRef } from "react";
 import OIMAvatar from "@/components/OIMAvatar";
 import { formatMessageTime } from "@/utils/imCommon";
 
+import CallRecordRender, { isCallRecordMessage } from "./CallRecordRender";
 import CatchMessageRender from "./CatchMsgRenderer";
 import MediaMessageRender from "./MediaMessageRender";
 import styles from "./message-item.module.scss";
@@ -32,7 +33,11 @@ const MessageItem: FC<IMessageItemProps> = ({
   conversationID,
 }) => {
   const messageWrapRef = useRef<HTMLDivElement>(null);
-  const MessageRenderComponent = components[message.contentType] || CatchMessageRender;
+  // 自定义消息里可能是通话记录，需要单独识别；其余走原有映射
+  const MessageRenderComponent =
+    message.contentType === MessageType.CustomMessage && isCallRecordMessage(message)
+      ? CallRecordRender
+      : components[message.contentType] || CatchMessageRender;
 
   return (
     <>
