@@ -45,3 +45,6 @@ test-results/
 
 # ===== WorkBuddy / 系统 =====
 .workbuddy/
+
+/docs/
+.dsh

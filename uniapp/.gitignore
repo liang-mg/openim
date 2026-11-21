@@ -1,0 +1,14 @@
+node_modules/
+dist/
+unpackage/
+.hbuilderx/
+
+# 本机环境文件：绝不提交
+.env.local
+.env.*.local
+.env.dev.local
+!.env.dev.local.example
+
+# 构建 / 日志
+*.log
+.DS_Store

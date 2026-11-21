@@ -1,0 +1,128 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/work/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTextStyle": "white",
+        "navigationBarBackgroundColor": "#0b5fd8",
+        "navigationBarTitleText": "工作台",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/message/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTextStyle": "white",
+        "navigationBarBackgroundColor": "#0b5fd8",
+        "navigationBarTitleText": "消息"
+      }
+    },
+    {
+      "path": "pages/contact/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTextStyle": "white",
+        "navigationBarBackgroundColor": "#0b5fd8",
+        "navigationBarTitleText": "通讯录"
+      }
+    },
+    {
+      "path": "pages/mine/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/chat/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "聊天",
+        "disableScroll": true
+      }
+    },
+    {
+      "path": "pages/checkin/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "拍照打卡"
+      }
+    },
+    {
+      "path": "pages/attendance/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "出勤记录"
+      }
+    },
+    {
+      "path": "pages/report/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "工作报告"
+      }
+    },
+    {
+      "path": "pages/leave/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "请假补卡"
+      }
+    },
+    {
+      "path": "pages/approvals/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "审批中心"
+      }
+    },
+    {
+      "path": "pages/report-review/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "报告查阅"
+      }
+    },
+    {
+      "path": "pages/oa-admin/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "员工与权限"
+      }
+    },
+    {
+      "path": "pages/notifications/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "通知",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/announcements/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "公告",
+        "enablePullDownRefresh": true
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationStyle": "custom",
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f4f6f9",
+    "backgroundColorTop": "#f4f6f9",
+    "backgroundColorBottom": "#f4f6f9",
+    "backgroundTextStyle": "dark"
+  }
+}

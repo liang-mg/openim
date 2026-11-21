@@ -1,0 +1,19 @@
+/**
+ * uni-app 的全局 SCSS 变量。
+ * 颜色与 frontend/ 的品牌色保持一致（#0b5fd8），避免两端两套蓝。
+ * 运行时统一用 App.vue 里的 CSS 变量（--brand 等），这里只给 scss 编译期用。
+ */
+
+$brand: #0b5fd8;
+$brand-dark: #0848a8;
+$brand-soft: #eaf2fe;
+$ink: #1f2329;
+$ink-2: #5c6370;
+$ink-3: #8a9099;
+$line: #eef0f3;
+$bg: #f4f6f9;
+$card: #ffffff;
+$danger: #e34d59;
+$warn: #f5a623;
+$ok: #22a06b;
+$radius: 12px;

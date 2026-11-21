@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      var coverSupport =
+        "CSS" in window &&
+        typeof CSS.supports === "function" &&
+        (CSS.supports("top: env(a)") || CSS.supports("top: constant(a)"));
+      document.write(
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no' +
+          (coverSupport ? ", viewport-fit=cover" : "") +
+          '" />'
+      );
+    </script>
+    <title>新博 OA · 移动端</title>
+    <!-- 运行时环境配置：部署时只改这一个文件，不用重新构建。
+         必须用普通 script（type="module" 会让 Vite 尝试打包它并报错）。
+         构建时会出现一条 "can't be bundled without type=module" 的告警，
+         属预期：该文件就是要在部署时被替换，不参与打包。 -->
+    <script src="/static/app-config.js"></script>
+    <!--preload-links-->
+    <!--app-context-->
+  </head>
+  <body>
+    <div id="app"><!--app-html--></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

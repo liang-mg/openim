@@ -1,0 +1,134 @@
+/**
+ * Tailwind 入口 + 项目组件类（@apply）。
+ *
+ * 约定（写页面时按这个来）：
+ *   - 布局/间距/对齐：直接用 tailwind 原子类（flex / gap-2 / px-3 / mt-2 …）；
+ *   - 有语义的复用块（卡片、行、标签、按钮、弹层内容）：在下面 @layer components 里
+ *     定义 `.oa-*` 组件类，用 @apply 组合，页面里只写类名，不再重复一堆 CSS；
+ *   - 品牌色不要写死 hex：用 `text-brand` / `bg-brand-soft` / `text-ink-3` 这些类，
+ *     它们与 App.vue 的 CSS 变量同值（改主题时两边一起改）。
+ *
+ * 为什么关闭 preflight：uni-app 的 button/input/picker/switch 依赖浏览器默认样式，
+ * Tailwind 的 reset 会把它们整形成"裸元素"，实测会让按钮变透明、输入框丢边框。
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 补一条 Preflight 的「边界归零」规则。
+ *
+ * 我们关掉了 preflight（否则 uni 的 button/input/picker 会被重置），但 preflight 里
+ * 还有一条关键规则：所有元素 border-width 默认 0、border-style 默认 solid。
+ * 少了它，任何 `border-solid`（哪怕只为配 `border-t`）都会让浏览器用 medium(3px) 兜底，
+ * 元素四周凭空多出 3px 边框 —— 实测工作台待办空态就是这样多了一圈框。
+ *
+ * 这里只补这一条，不引入 preflight 的其它重置。
+ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-width: 0;
+    border-style: solid;
+    border-color: theme("colors.line");
+  }
+}
+
+@layer components {
+  /* 页面容器：底部留出 tabbar 空间 */
+  .oa-page {
+    @apply min-h-full bg-page px-3 pt-3;
+  }
+
+  /* 卡片 */
+  .oa-card {
+    @apply rounded-card bg-white p-3 shadow-card mb-3;
+  }
+
+  .oa-card-flat {
+    @apply rounded-card bg-white p-3 mb-3;
+  }
+
+  /* 分区标题 */
+  .oa-section-title {
+    @apply text-md font-semibold text-ink;
+  }
+
+  .oa-section-desc {
+    @apply text-xs text-ink-3 mt-1 leading-relaxed;
+  }
+
+  /* 列表行 */
+  .oa-row {
+    @apply flex items-center gap-3 py-3 border-b border-line;
+  }
+
+  .oa-row-last {
+    @apply border-b-0;
+  }
+
+  .oa-row-label {
+    @apply flex-1 text-md text-ink;
+  }
+
+  .oa-row-arrow {
+    @apply text-ink-4 text-base;
+  }
+
+  /* 按钮 */
+  .oa-btn {
+    @apply h-11 rounded-ctl bg-fill-2 flex items-center justify-center text-md text-ink;
+  }
+
+  .oa-btn-primary {
+    @apply h-11 rounded-ctl bg-brand flex items-center justify-center text-md text-white font-medium;
+  }
+
+  .oa-btn-danger {
+    @apply h-11 rounded-ctl bg-danger flex items-center justify-center text-md text-white;
+  }
+
+  .oa-btn-ghost {
+    @apply h-11 rounded-ctl bg-brand-soft flex items-center justify-center text-md text-brand;
+  }
+
+  /* 表单控件（配合 form-field 外壳） */
+  .oa-input {
+    @apply h-10 px-3 rounded-ctl bg-fill text-md text-ink;
+  }
+
+  .oa-textarea {
+    @apply w-full px-3 py-2.5 rounded-ctl bg-fill text-base text-ink;
+  }
+
+  /* 标签 */
+  .oa-tag {
+    @apply inline-flex items-center h-4.5 px-1.5 rounded text-2xs;
+  }
+
+  .oa-tag-brand {
+    @apply oa-tag text-brand bg-brand-soft;
+  }
+
+  .oa-tag-ok {
+    @apply oa-tag text-ok-text bg-ok-soft;
+  }
+
+  .oa-tag-warn {
+    @apply oa-tag text-warn-text bg-warn-soft;
+  }
+
+  .oa-tag-danger {
+    @apply oa-tag text-danger bg-danger-soft;
+  }
+
+  /* 分隔与提示 */
+  .oa-divider {
+    @apply h-px bg-line my-3;
+  }
+
+  .oa-hint {
+    @apply text-2xs text-ink-4 leading-relaxed;
+  }
+}
