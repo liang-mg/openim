@@ -168,7 +168,7 @@ verify() {
   web_port="${web_port:-5173}"
   local url="http://127.0.0.1:${port}/oa/api/v1/healthz"
 
-  compose ps 2>/dev/null | grep -qE 'xinbo-oa|oa-web' \
+  compose --env-file "$ENV_FILE" ps 2>/dev/null | grep -qE 'xinbo-oa|oa-web' \
     && ok "容器已创建" || warn "容器状态异常，执行 deploy.sh status"
 
   local backend_ok=0
