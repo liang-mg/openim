@@ -42,7 +42,9 @@ openim/
 bash deploy/deploy.sh bootstrap
 ```
 
-脚本自动完成：预检 → 生成 `.env` 和随机密钥 → 构建后端/前端两个镜像（Go 和 pnpm 都在镜像里跑）→ 启动 mongo/minio → 启动 OA 服务 + 前端 + 管理后台 → 健康检查。看到 `OA 环境已就绪` 即成功。
+脚本自动完成：预检 → 生成 `.env` 和随机密钥 → 构建后端/前端两个镜像（Go 和 pnpm 都在镜像里跑）→ 启动底座（mongo/minio/redis/etcd/kafka）→ 启动 IM 服务（openim-server/openim-chat）→ 启动 OA 服务 + 前端 + 管理后台 → 健康检查。看到 `OA 环境已就绪` 即成功。
+
+> **IM 服务是登录的前提，已纳入 bootstrap**：`openim-server`/`openim-chat` 官方镜像较大，首次拉取可能要几分钟，请勿中途断开终端。`openim-server` 有约 5 分钟健康检查观察期，`openim-chat` 会在它就绪后自动启动。前端 nginx 已改为动态解析上游，即使 IM 尚未就绪，页面也能正常打开（只是登录接口暂不可用），不会再出现整站反复重启。
 
 浏览器打开：
 - **OA 网页版：http://127.0.0.1:5173**
@@ -52,7 +54,7 @@ bash deploy/deploy.sh bootstrap
 
 用**账号（手机号）+ 密码**登录，六个测试账号的密码见 `docs/OA测试账号与权限说明.md`（需要 IM 服务 openim-server / openim-chat 已启动）。新环境先在 IM 侧建账号，再到 OA「员工与权限」建档并指定上级。
 
-> 如果只起了 OA 服务没起 IM，页面能打开但登录会失败。要么把 `openim-server` / `openim-chat` 服务起起来，要么只验证 OA 接口：`curl http://127.0.0.1:10010/oa/api/v1/healthz`。
+> 如果只起了 OA 服务没起 IM，页面能打开但登录会失败。用 `bash deploy/deploy.sh up` 会连带起 IM 服务；或手动补：`docker compose -f ../base/docker-compose.yaml --env-file ../.env up -d redis etcd kafka openim-server openim-chat`。只验证 OA 接口可用 `curl http://127.0.0.1:10010/oa/api/v1/healthz`。
 
 ---
 

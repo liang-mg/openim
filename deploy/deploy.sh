@@ -132,16 +132,27 @@ do_build() {
   build_all_images
 }
 
+# 启动完整 IM 底座（依赖服务 + openim-server/chat）。
+# 登录验证码与前端 /api /chat 反代都依赖这些容器；缺一步会导致页面反复重启。
+ensure_im() {
+  local base; base="$(detect_compose)"
+  step "启动依赖底座（mongo / minio / redis / etcd / kafka）"
+  docker compose -f "$base" --env-file "$ENV_FILE" up -d mongo minio redis etcd kafka \
+    || fail "依赖底座启动失败，检查 $ENV_FILE 密码配置。"
+  step "启动 IM 服务（openim-server / openim-chat）"
+  # openim-server 官方镜像较大，首次拉取较慢；openim-chat 依赖其健康检查通过。
+  docker compose -f "$base" --env-file "$ENV_FILE" up -d openim-server openim-chat \
+    || fail "IM 服务启动失败，执行 docker logs openim-server 排查。"
+  ok "IM 服务已提交启动（openim-server 有约 5 分钟观察期，chat 随后就绪）"
+}
+
 do_bootstrap() {
   step "OA 环境一键部署（首次全流程）"
   preflight
   prepare_env
   build_all_images
 
-  step "启动依赖底座（mongo / minio）"
-  local base; base="$(detect_compose)"
-  docker compose -f "$base" --env-file "$ENV_FILE" up -d mongo minio \
-    || fail "mongo/minio 启动失败，检查 $ENV_FILE 密码配置。"
+  ensure_im
 
   step "启动 OA 服务 + 前端 + 管理后台"
   compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web openim-admin-front \
@@ -220,11 +231,12 @@ case "$cmd" in
   build)     do_build ;;
   up)
     preflight
+    ensure_im
     compose --env-file "$ENV_FILE" up -d --force-recreate xinbo-oa oa-web openim-admin-front
     verify
     ;;
   down)      preflight; compose --env-file "$ENV_FILE" down ;;
-  restart)   preflight; compose --env-file "$ENV_FILE" restart xinbo-oa oa-web openim-admin-front; verify ;;
+  restart)   preflight; ensure_im; compose --env-file "$ENV_FILE" restart xinbo-oa oa-web openim-admin-front; verify ;;
   status)    preflight; compose --env-file "$ENV_FILE" ps ;;
   logs)      preflight; compose --env-file "$ENV_FILE" logs -f --tail=200 "${2:-xinbo-oa}" ;;
   verify)    preflight; verify ;;
