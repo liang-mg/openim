@@ -7,6 +7,9 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
 
 COPY package.json pnpm-lock.yaml .npmrc ./
+# package.json 的 pnpm.patchedDependencies 引用了 patches/ 下的补丁，
+# 必须在 install 前 COPY，否则 pnpm 找不到补丁文件（ENOENT）
+COPY patches/ ./patches/
 RUN pnpm install --frozen-lockfile
 
 COPY . .
