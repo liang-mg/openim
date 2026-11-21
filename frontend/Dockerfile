@@ -10,6 +10,12 @@ COPY package.json pnpm-lock.yaml .npmrc ./
 # package.json 的 pnpm.patchedDependencies 引用了 patches/ 下的补丁，
 # 必须在 install 前 COPY，否则 pnpm 找不到补丁文件（ENOENT）
 COPY patches/ ./patches/
+# pnpm 10 默认会执行所有依赖的 postinstall。electron / koffi 的原生模块需要
+# CMake 等系统依赖，alpine 构建镜像里没有，会导致 install 失败。
+# 这里只放行 Web 构建真正需要的两个原生模块，其余（含 electron/koffi）跳过构建脚本。
+# Web 版用 vite.web.config.ts，不依赖 electron，跳过其 postinstall 无影响。
+# 注意：本文件与 deploy/Dockerfile.oa-web 需保持一致，改动请同步。
+RUN node -e "const fs=require('fs'); const manifest=JSON.parse(fs.readFileSync('package.json','utf8')); manifest.pnpm.onlyBuiltDependencies=['@parcel/watcher','esbuild']; fs.writeFileSync('package.json',JSON.stringify(manifest));"
 RUN pnpm install --frozen-lockfile
 
 COPY . .
