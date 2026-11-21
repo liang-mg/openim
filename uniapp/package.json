@@ -1,6 +1,6 @@
 {
   "name": "xinbo-oa-uniapp",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "新博 OA 移动端（uni-app / Vue3）。目标：与 frontend/ 的 PC 端功能、样式保持一致，并作为后续 IM 与原生推送的载体。",
   "scripts": {

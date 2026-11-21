@@ -142,12 +142,18 @@ export default {
     },
     requestLocation() {
       this.locStatus = "locating";
+      this.locData = null;
       this.locMessage = "";
       this.locSource = "gps";
       const fail = (msg) => {
         this.locStatus = "error";
         this.locMessage = msg;
       };
+      const settingProblem = this.locationSettingProblem();
+      if (settingProblem) {
+        fail(settingProblem);
+        return;
+      }
       /** GPS 拿不到时按请求来源 IP 粗略定位：只保证打卡流程不卡死，精度低，界面标 locSource="ip"。 */
       const fallbackByIp = async (reason) => {
         this.locSource = "ip";
@@ -158,7 +164,8 @@ export default {
           this.locMessage = reason ? `${reason}，已按网络位置估算` : "已按网络位置估算";
         } catch (e) {
           this.locSource = "gps";
-          fail(reason || e.message || "无法获取位置，请检查系统定位开关与网络");
+          const backendMessage = e && e.message ? e.message : "后端连接失败";
+          fail(reason ? `${reason}；网络定位兜底失败：${backendMessage}` : backendMessage);
         }
       };
       uni.getLocation({
@@ -177,17 +184,53 @@ export default {
           }
         },
         fail: (err) => {
-          const msg = (err && err.errMsg) || "";
-          if (msg.includes("auth") || msg.includes("deny") || msg.includes("permission")) {
+          const msg = String((err && (err.errMsg || err.message)) || "");
+          const lower = msg.toLowerCase();
+          if (lower.includes("auth") || lower.includes("deny") || lower.includes("permission")) {
             // 权限被拒时不再偷偷兜底，明确告知用户去开权限
             fail("定位权限被拒绝，请在系统设置里允许「位置」后重试");
-          } else if (msg.includes("timeout")) {
+          } else if (lower.includes("location service") || lower.includes("gps") && lower.includes("off")) {
+            fail("手机系统定位服务未开启，请打开 GPS/位置信息后重试");
+          } else if (lower.includes("timeout")) {
             fallbackByIp("定位超时");
           } else {
-            fallbackByIp("无法获取 GPS 位置");
+            const detail = msg.replace(/^getLocation:fail\s*/i, "").trim();
+            fallbackByIp(detail ? `GPS 定位失败（${detail}）` : "GPS 定位失败");
           }
         },
       });
+    },
+    /** 在真正请求定位前先区分模块、系统开关和权限问题；H5 还要满足安全上下文要求。 */
+    locationSettingProblem() {
+      try {
+        if (
+          typeof window !== "undefined" &&
+          window.location &&
+          window.location.protocol === "http:" &&
+          window.location.hostname !== "localhost" &&
+          !window.location.hostname.startsWith("127.")
+        ) {
+          return "浏览器定位需要 HTTPS，请使用 HTTPS 地址打开后重试";
+        }
+        if (typeof uni.getSystemSetting === "function") {
+          const system = uni.getSystemSetting();
+          if (system && system.locationEnabled === false) {
+            return "手机系统定位服务未开启，请打开 GPS/位置信息后重试";
+          }
+        }
+        if (typeof uni.getAppAuthorizeSetting === "function") {
+          const auth = uni.getAppAuthorizeSetting();
+          if (auth && auth.locationAuthorized === "denied") {
+            return "定位权限被拒绝，请在系统设置里允许「位置」后重试";
+          }
+          if (auth && auth.locationAuthorized === "config error") {
+            return "当前安装包缺少定位模块，请安装最新版本后重试";
+          }
+        }
+      } catch (e) {
+        // 某些旧 WebView 不支持设置查询，继续交给 getLocation 返回真实结果。
+      }
+      return "";
     },
     takePhoto() {
       uni.chooseImage({

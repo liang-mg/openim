@@ -50,7 +50,8 @@ services:
       - OA_IM_PUSH_URL=${XINBO_OA_IM_PUSH_URL:-}
       - OA_IM_PUSH_TOKEN=${XINBO_OA_IM_PUSH_TOKEN:-}
     ports:
-      - "127.0.0.1:${XINBO_OA_PORT:-10010}:10010"
+      # APK/手机需要从局域网访问；生产环境可在 oa.env 中把 BIND_IP 改为反代服务器地址。
+      - "${XINBO_OA_BIND_IP:-0.0.0.0}:${XINBO_OA_PORT:-10010}:10010"
     depends_on:
       mongo:
         condition: service_started

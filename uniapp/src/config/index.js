@@ -68,7 +68,7 @@ const withImOrigin = (path) => (IM_ORIGIN && path.startsWith("/") ? `${IM_ORIGIN
 export const CONFIG = {
   // 应用
   appName: env.VITE_APP_NAME || "新博 OA",
-  appVersion: env.VITE_APP_VERSION || "0.1.0",
+  appVersion: env.VITE_APP_VERSION || "0.1.2",
 
   // 环境标识：页面/日志里可以直接显示，便于确认「这个包连的是哪套后端」
   envName: (OVERRIDE && OVERRIDE.env) || RUNTIME.env || env.MODE || "development",

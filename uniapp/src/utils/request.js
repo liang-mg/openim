@@ -12,6 +12,36 @@ import { getToken, clearAuth } from "@/utils/storage";
 
 let redirecting = false;
 
+/** 只展示协议、主机和端口，既方便排障，也避免把接口路径或查询参数带给用户。 */
+function backendLabel(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.host || parsed.origin;
+  } catch (e) {
+    return CONFIG.origin || "当前后端";
+  }
+}
+
+function networkError(raw, url) {
+  const target = backendLabel(url);
+  let message = `后端连接失败（${target}），请确认服务已启动且手机与服务器网络互通`;
+  let code = "BACKEND_UNREACHABLE";
+  if (raw.includes("timeout")) {
+    message = `后端请求超时（${target}），请检查服务器或网络`;
+    code = "BACKEND_TIMEOUT";
+  } else if (raw.includes("abort")) {
+    message = "请求已取消";
+    code = "REQUEST_ABORTED";
+  } else if (raw.includes("domain") || raw.includes("url not in")) {
+    message = `后端地址不可用（${target}），请联系管理员检查配置`;
+    code = "BACKEND_ADDRESS_INVALID";
+  }
+  const error = new Error(message);
+  error.code = code;
+  error.rawMessage = raw;
+  return error;
+}
+
 function goLogin() {
   if (redirecting) return;
   redirecting = true;
@@ -101,13 +131,10 @@ export function request(options = {}) {
         resolve(body);
       },
       fail: (err) => {
-        // uni 的 errMsg 是 request:fail xxx 这种原始串，不能直接弹给用户
+        // uni 的 errMsg 是 request:fail xxx 这种原始串，不直接弹出；
+        // 但保留可识别的错误类型和目标主机，定位页可以准确区分 GPS 与后端故障。
         const raw = String((err && err.errMsg) || "");
-        let msg = "网络异常，请检查网络后重试";
-        if (raw.includes("timeout")) msg = "请求超时，请稍后重试";
-        else if (raw.includes("abort")) msg = "请求已取消";
-        else if (raw.includes("domain") || raw.includes("url not in")) msg = "接口地址不可用，请联系管理员";
-        reject(new Error(msg));
+        reject(networkError(raw, url));
       },
     });
   });

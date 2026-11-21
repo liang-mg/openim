@@ -2,8 +2,8 @@
     "name" : "新博OA",
     "appid" : "__UNI__9F1C00E",
     "description" : "新博 OA 移动端（IM 会话 / 通讯录 / 工作台 / 打卡 / 出勤 / 日报）",
-    "versionName" : "0.1.0",
-    "versionCode" : "100",
+    "versionName" : "0.1.2",
+    "versionCode" : "102",
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
@@ -17,7 +17,8 @@
         },
         "modules" : {
             "Camera" : {},
-            "File" : {}
+            "File" : {},
+            "Geolocation" : {}
         },
         "distribute" : {
             "icons" : {
@@ -46,7 +47,11 @@
             "ios" : {
                 "dSYMs" : false
             },
-            "sdkConfigs" : {}
+            "sdkConfigs" : {
+                "geolocation" : {
+                    "system" : {}
+                }
+            }
         }
     },
     "quickapp" : {},
