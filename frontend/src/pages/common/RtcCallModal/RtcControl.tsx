@@ -21,7 +21,7 @@ import rtc_camera_off from "@/assets/images/rtc/rtc_camera_off.png";
 import rtc_hungup from "@/assets/images/rtc/rtc_hungup.png";
 import rtc_mic from "@/assets/images/rtc/rtc_mic.png";
 import rtc_mic_off from "@/assets/images/rtc/rtc_mic_off.png";
-import { CustomType } from "@/constants";
+import { CallRecordResult, CustomType } from "@/constants";
 import { IMSDK } from "@/layout/MainContentWrap";
 import { useUserStore } from "@/store";
 import { feedbackToast } from "@/utils/common";
@@ -37,6 +37,7 @@ interface IRtcControlProps {
   connectRtc: (data?: AuthData) => void;
   closeOverlay: () => void;
   sendCustomSignal: (recvID: string, customType: CustomType) => Promise<void>;
+  sendCallRecord: (result: CallRecordResult) => Promise<void>;
 }
 
 const isRtcSignal = (
@@ -54,6 +55,7 @@ export const RtcControl = ({
   connectRtc,
   closeOverlay,
   sendCustomSignal,
+  sendCallRecord,
 }: IRtcControlProps) => {
   const room = useRoomContext();
   const localParticipantState = useLocalParticipant();
@@ -75,10 +77,14 @@ export const RtcControl = ({
     };
     const rejectHandler = ({ roomID }: SignalingInvitation) => {
       if (invitation.roomID !== roomID) return;
+      // 主叫收到拒接 → 记一条「已拒绝」记录（被叫侧 sendCallRecord 内部会忽略）
+      void sendCallRecord(CallRecordResult.Rejected);
       closeOverlay();
     };
     const hangupHandler = ({ roomID }: SignalingInvitation) => {
       if (invitation.roomID !== roomID) return;
+      // 对方在通话中挂断 → 记一条「已接听」记录，时长由发起方 ref 计算
+      void sendCallRecord(CallRecordResult.Connected);
       room.disconnect();
       closeOverlay();
     };
@@ -132,6 +138,7 @@ export const RtcControl = ({
     inviterUserID,
     isWaiting,
     room,
+    sendCallRecord,
   ]);
 
   const hungup = () => {
@@ -139,9 +146,13 @@ export const RtcControl = ({
     if (isWaiting) {
       const customType = isRecv ? CustomType.CallingReject : CustomType.CallingCancel;
       void sendCustomSignal(recvID, customType);
+      // 主叫主动取消 → 记「已取消」；被叫拒接由主叫收到 reject 信号时记录
+      if (!isRecv) void sendCallRecord(CallRecordResult.Canceled);
       closeOverlay();
       return;
     }
+    // 接通后挂断 → 记「已接听 + 时长」
+    void sendCallRecord(CallRecordResult.Connected);
     void sendCustomSignal(recvID, CustomType.CallingHungup);
     room.disconnect();
   };

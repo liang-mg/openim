@@ -19,7 +19,7 @@ import {
 import { useEffect, useState } from "react";
 
 import OIMAvatar from "@/components/OIMAvatar";
-import { CustomType } from "@/constants";
+import { CallRecordResult, CustomType } from "@/constants";
 
 import { AuthData, InviteData } from "./data";
 import { RtcControl } from "./RtcControl";
@@ -36,6 +36,7 @@ interface IRtcLayoutProps {
   closeOverlay: () => void;
   sendCustomSignal: (recvID: string, customType: CustomType) => Promise<void>;
   connectRtc: (data?: AuthData) => void;
+  sendCallRecord: (result: CallRecordResult) => Promise<void>;
 }
 export const RtcLayout = ({
   connect,
@@ -45,6 +46,7 @@ export const RtcLayout = ({
   connectRtc,
   sendCustomSignal,
   closeOverlay,
+  sendCallRecord,
 }: IRtcLayoutProps) => {
   const isVideoCall = inviteData?.invitation?.mediaType === "video";
   const tracks = useTracks([Track.Source.Camera]);
@@ -105,6 +107,7 @@ export const RtcLayout = ({
               closeOverlay={closeOverlay}
               connectRtc={connectRtc}
               sendCustomSignal={sendCustomSignal}
+              sendCallRecord={sendCallRecord}
             />
           )}
         </div>
