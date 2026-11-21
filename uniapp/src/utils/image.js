@@ -22,7 +22,12 @@ export const MAX_PHOTO_BYTES = 300 * 1024;
 
 const JPEG_PREFIX = "data:image/jpeg;base64,";
 
-/** 把任意图片路径转成 data URL（后端 submitCheckin 的 photo 只认真 data URL） */
+/**
+ * 把任意图片路径转成 data URL（后端 submitCheckin 的 photo 只认 data URL）。
+ *
+ * 传统 uni-app App 的 JS 引擎没有 uni.getFileSystemManager，APK 必须走
+ * HTML5+ 的 plus.io；小程序才使用 uni.getFileSystemManager。
+ */
 export function toDataURL(filePath) {
   return new Promise((resolve, reject) => {
     // #ifdef H5
@@ -36,12 +41,37 @@ export function toDataURL(filePath) {
       })
       .catch(() => reject(new Error("图片读取失败")));
     // #endif
-    // #ifndef H5
+
+    // #ifdef APP-PLUS
+    try {
+      const fail = () => reject(new Error("图片读取失败"));
+      plus.io.resolveLocalFileSystemURL(
+        filePath,
+        (entry) => {
+          entry.file((file) => {
+            const reader = new plus.io.FileReader();
+            reader.onloadend = (event) => {
+              const result = String((event && event.target && event.target.result) || reader.result || "");
+              if (result.startsWith("data:")) resolve(result);
+              else fail();
+            };
+            reader.onerror = fail;
+            reader.readAsDataURL(file);
+          }, fail);
+        },
+        fail
+      );
+    } catch (e) {
+      reject(new Error("图片读取失败"));
+    }
+    // #endif
+
+    // #ifdef MP
     try {
       uni.getFileSystemManager().readFile({
         filePath,
         encoding: "base64",
-        success: (res) => resolve(`data:image/jpeg;base64,${res.data}`),
+        success: (res) => resolve(`${JPEG_PREFIX}${res.data}`),
         fail: () => reject(new Error("图片读取失败")),
       });
     } catch (e) {
