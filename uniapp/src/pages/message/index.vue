@@ -6,10 +6,10 @@
         <text v-if="!connected" class="msg__state">IM 未连接</text>
         <view v-if="totalUnread" class="msg__unread"><text class="msg__unread-text">{{ totalUnread > 99 ? "99+" : totalUnread }}</text></view>
         <view class="msg__add" @tap="showAddMenu">
-          <app-icon name="plus" :size="20" color="#ffffff" />
+          <app-icon name="plus" :size="24" color="#ffffff" />
         </view>
         <view class="msg__bell" @tap="goNotifications">
-          <app-icon name="bell" :size="20" color="#ffffff" />
+          <app-icon name="bell" :size="24" color="#ffffff" />
         </view>
       </view>
     </view>
@@ -110,6 +110,13 @@ export default {
     if (this.reloadTimer) clearTimeout(this.reloadTimer);
     if (this.emptyRetryTimer) clearTimeout(this.emptyRetryTimer);
   },
+  onHide() {
+    // 切到聊天/其他页时停止后台轮询，回来 onShow 会重新拉
+    if (this.emptyRetryTimer) {
+      clearTimeout(this.emptyRetryTimer);
+      this.emptyRetryTimer = null;
+    }
+  },
   methods: {
     bindListeners() {
       if (!this.offState) {
@@ -205,7 +212,7 @@ export default {
       }
     },
     scheduleEmptyRetry() {
-      if (this.list.length || this.emptyRetryCount >= 5 || this.emptyRetryTimer) return;
+      if (this.list.length || this.emptyRetryCount >= 40 || this.emptyRetryTimer) return;
       this.emptyRetryCount += 1;
       this.emptyRetryTimer = setTimeout(async () => {
         this.emptyRetryTimer = null;
@@ -262,20 +269,20 @@ export default {
 }
 
 .msg__add {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .msg__bell {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: -6px;
+  margin-right: -8px;
 }
 
 .msg__state {

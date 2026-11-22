@@ -17,6 +17,9 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // white/black 也走主题变量，避免组件里散落系统默认的纯白/纯黑
+        white: "var(--card)",
+        black: "var(--ink)",
         brand: { DEFAULT: "#0b5fd8", dark: "#0848a8", soft: "#eaf2fe" },
         ink: { DEFAULT: "#1f2329", 2: "#5c6370", 3: "#8a9099", 4: "#b6bcc6" },
         ok: { DEFAULT: "#22a06b", text: "#12a870", soft: "#e8f7ee" },

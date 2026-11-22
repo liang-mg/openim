@@ -25,7 +25,9 @@
           :loc-source="locSource"
           :today-office="today.office"
           :need-location="needLocation"
+          :need-setting="locNeedSetting"
           @relocate="requestLocation"
+          @open-settings="openLocationSettings"
         />
       </view>
 
@@ -85,6 +87,9 @@ export default {
       /** gps = 真定位；ip = GPS 失败后按网络位置兜底（精度低，界面上要标出来） */
       locSource: "gps",
       locMessage: "",
+      locNeedSetting: false,
+      locSettingKind: "",
+      locTimer: null,
       now: new Date(),
       clock: "00:00:00",
       timer: null,
@@ -116,6 +121,7 @@ export default {
   },
   onUnload() {
     if (this.timer) clearInterval(this.timer);
+    if (this.locTimer) clearTimeout(this.locTimer);
   },
   mounted() {
     this.tick();
@@ -145,13 +151,25 @@ export default {
       this.locData = null;
       this.locMessage = "";
       this.locSource = "gps";
-      const fail = (msg) => {
+      this.locNeedSetting = false;
+      this.locSettingKind = "";
+      const clearLocTimer = () => {
+        if (this.locTimer) {
+          clearTimeout(this.locTimer);
+          this.locTimer = null;
+        }
+      };
+      const fail = (msg, needSetting = false, kind = "") => {
+        clearLocTimer();
         this.locStatus = "error";
         this.locMessage = msg;
+        this.locNeedSetting = needSetting;
+        if (needSetting) this.locSettingKind = kind || "app";
       };
       const settingProblem = this.locationSettingProblem();
       if (settingProblem) {
-        fail(settingProblem);
+        const kind = settingProblem.includes("系统定位") ? "system" : "app";
+        fail(settingProblem, true, kind);
         return;
       }
       /** GPS 拿不到时按请求来源 IP 粗略定位：只保证打卡流程不卡死，精度低，界面标 locSource="ip"。 */
@@ -159,6 +177,7 @@ export default {
         this.locSource = "ip";
         try {
           const data = await locateCheckinByIp();
+          clearLocTimer();
           this.locData = data;
           this.locStatus = "ok";
           this.locMessage = reason ? `${reason}，已按网络位置估算` : "已按网络位置估算";
@@ -168,6 +187,11 @@ export default {
           fail(reason ? `${reason}；网络定位兜底失败：${backendMessage}` : backendMessage);
         }
       };
+      // 某些 Android WebView 在权限弹窗/系统设置异常时既不 success 也不 fail，
+      // 这里兜底 12 秒，避免用户点“重新定位”像没反应。
+      this.locTimer = setTimeout(() => {
+        if (this.locStatus === "locating") fallbackByIp("定位超时");
+      }, 12000);
       uni.getLocation({
         // 用 wgs84：H5 上 gcj02 需要地图服务商 key（没配会直接失败），
         // 且服务端按 PC 端上传的 WGS84 坐标算距离，两端必须同一坐标系。
@@ -175,6 +199,7 @@ export default {
         isHighAccuracy: true,
         highAccuracyExpireTime: 8000,
         success: async (pos) => {
+          clearLocTimer();
           try {
             const data = await locateCheckin(pos.latitude, pos.longitude);
             this.locData = data;
@@ -188,9 +213,9 @@ export default {
           const lower = msg.toLowerCase();
           if (lower.includes("auth") || lower.includes("deny") || lower.includes("permission")) {
             // 权限被拒时不再偷偷兜底，明确告知用户去开权限
-            fail("定位权限被拒绝，请在系统设置里允许「位置」后重试");
+            fail("定位权限被拒绝，请在系统设置里允许「位置」后重试", true, "app");
           } else if (lower.includes("location service") || lower.includes("gps") && lower.includes("off")) {
-            fail("手机系统定位服务未开启，请打开 GPS/位置信息后重试");
+            fail("手机系统定位服务未开启，请打开 GPS/位置信息后重试", true, "system");
           } else if (lower.includes("timeout")) {
             fallbackByIp("定位超时");
           } else {
@@ -199,6 +224,43 @@ export default {
           }
         },
       });
+    },
+    openLocationSettings() {
+      // #ifdef APP-PLUS
+      try {
+        const main = plus.android.runtimeMainActivity();
+        const Intent = plus.android.importClass("android.content.Intent");
+        const Uri = plus.android.importClass("android.net.Uri");
+        let intent;
+        if (this.locSettingKind === "system") {
+          intent = new Intent("android.settings.LOCATION_SOURCE_SETTINGS");
+        } else {
+          intent = new Intent("android.settings.APPLICATION_DETAILS_SETTINGS");
+          intent.setData(Uri.fromParts("package", main.getPackageName(), null));
+        }
+        main.startActivity(intent);
+        return;
+      } catch (e) {
+        // 落到下面的 openSetting / 文案说明
+      }
+      // #endif
+      if (typeof uni.openSetting === "function") {
+        uni.openSetting({
+          success: () => {
+            // 用户从系统设置返回后，页面 onShow 会自动再请求一次
+            this.requestLocation();
+            },
+          fail: () => this.showLocationHelp(),
+        });
+        return;
+      }
+      this.showLocationHelp();
+    },
+    showLocationHelp() {
+      const text = this.locSettingKind === "system"
+        ? "请打开手机「设置 → 位置信息」，再回到 App 点「重新定位」。"
+        : "请打开手机「设置 → 应用 → 新博OA → 权限 → 位置」，选择允许后回到 App 点「重新定位」。";
+      uni.showModal({ title: "开启定位权限", content: text, showCancel: false });
     },
     /** 在真正请求定位前先区分模块、系统开关和权限问题；H5 还要满足安全上下文要求。 */
     locationSettingProblem() {

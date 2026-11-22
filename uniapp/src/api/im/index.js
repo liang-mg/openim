@@ -116,15 +116,12 @@ function bindNetwork() {
 
 export async function connect() {
   if (state === "connected") {
-    // 状态可能已经过期（VPN 切换/后台挂起）；健康检查做 8 秒节流，
-    // 否则每次进页面都等一次原生 getLoginStatus，切换会明显发顿。
-    if (typeof impl.isAlive !== "function") return;
-    if (Date.now() - lastHealthAt < 8000) return;
-    lastHealthAt = Date.now();
-    const alive = await impl.isAlive().catch(() => false);
-    if (alive) return;
-    state = "failed";
-    emit("state", state);
+    // 不在每次进页面时做 getLoginStatus 健康检查：
+    // App 冷启动时 login 已返回但同步/WS 还在 Logging，getLoginStatus 会短暂返回
+    // 非 3；这里若判 failed，APP 的 loggedIn 仍为 true，后续 connect 直接 return，
+    // 页面就一直空列表，必须退出重登才恢复。
+    // 连接健康统一交给 ensureConnection（App onShow）和发送超时重连。
+    return;
   }
   if (connectPromise) return connectPromise;
   bindNetwork();

@@ -91,32 +91,36 @@ export default {
 
 <style scoped>
 .cal__week {
-  display: flex;
-  padding-bottom: 6px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  padding: 0 2px 6px;
 }
 
 .cal__week-item {
-  flex: 1;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--ink-3);
+  font-weight: var(--weight-medium);
 }
 
 .cal__grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
 }
 
 .cal__cell {
-  width: 14.2857%;
-  height: 58px;
+  height: 56px;
   box-sizing: border-box;
   padding: 4px 2px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   gap: 1px;
-  border-radius: 6px;
+  border-radius: 8px;
+  background: transparent;
 }
 
 .cal__cell--blank {
@@ -124,9 +128,16 @@ export default {
 }
 
 .cal__day {
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--ink);
+  font-weight: var(--weight-medium);
   line-height: 1.2;
+}
+
+.cal__cell--weekend .cal__day,
+.cal__cell--future .cal__day,
+.cal__cell--idle .cal__day {
+  color: var(--ink-2);
 }
 
 .cal__times {
@@ -183,7 +194,7 @@ export default {
 .cal__cell--weekend,
 .cal__cell--future,
 .cal__cell--idle {
-  background: #f7f8fa;
+  background: transparent;
 }
 
 .cal__cell--today {
@@ -191,7 +202,13 @@ export default {
 }
 
 .cal__cell--selected {
+  background: var(--brand-soft);
   box-shadow: inset 0 0 0 2px var(--brand);
+}
+
+.cal__cell--selected .cal__day {
+  color: var(--brand);
+  font-weight: var(--weight-semibold);
 }
 
 .cal__grid--compact .cal__cell {

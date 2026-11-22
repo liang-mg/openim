@@ -94,14 +94,40 @@ page,
   --line-2: #d9dee7;
   --radius: 12px;
   --sub-text: #8a96ab;
+  /* 排版 token：所有页面统一从这里取，不依赖浏览器默认字体/字号 */
+  --font-sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-number: "SF Pro Display", "HarmonyOS Sans SC", "PingFang SC", Arial, sans-serif;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --radius-sm: 6px;
+  --radius-ctl: 8px;
+  --radius-card: 12px;
+  --shadow-card: 0 4px 16px rgba(20, 48, 92, 0.06);
 }
 
 page {
   background: var(--bg);
   color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+button {
+  font-family: var(--font-sans);
+  color: var(--ink);
 }
 
 view,
@@ -133,6 +159,16 @@ scroll-view {
   min-height: 100%;
   margin: 0 auto;
   background: var(--bg);
+  animation: oa-page-in 0.18s ease-out both;
+}
+
+@keyframes oa-page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-page { animation: none; }
 }
 
 /* 只在桌面浏览器里做「手机壳」效果；真机不加阴影，少一次大范围合成 */

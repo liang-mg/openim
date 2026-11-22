@@ -1,17 +1,12 @@
 <template>
   <view class="apps oa-card">
     <text class="apps__title block text-lg font-semibold text-ink mb-3.5">常用应用</text>
-    <view class="apps__grid flex flex-wrap">
-      <view
-        v-for="app in apps"
-        :key="app.key"
-        class="apps__item w-1/3 py-2 px-0.5 flex flex-col items-center gap-2"
-        @tap="openApp(app)"
-      >
-        <view class="apps__icon w-13 h-13 rounded-card flex items-center justify-center" :style="{ background: app.bg }">
+    <view class="apps__grid">
+      <view v-for="app in apps" :key="app.key" class="apps__item" @tap="openApp(app)">
+        <view class="apps__icon" :style="{ background: app.bg }">
           <app-icon :name="app.icon" :size="24" :color="app.fg" />
         </view>
-        <text class="apps__name text-sm text-ink">{{ app.name }}</text>
+        <text class="apps__name">{{ app.name }}</text>
       </view>
     </view>
   </view>
@@ -44,3 +39,48 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+.apps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 6px;
+}
+
+.apps__item {
+  min-height: 90px;
+  padding: 8px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border-radius: var(--radius-card);
+  box-sizing: border-box;
+}
+
+.apps__item:active {
+  background: var(--fill);
+}
+
+.apps__icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.apps__name {
+  width: 100%;
+  text-align: center;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--ink);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+</style>

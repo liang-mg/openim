@@ -48,3 +48,6 @@ test-results/
 
 /docs/
 .dsh
+# ===== 本机 Agent 约定 / skills（不提交） =====
+/Agend.md
+/AGENTS.md

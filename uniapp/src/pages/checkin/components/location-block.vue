@@ -14,7 +14,10 @@
 
     <view v-else-if="locStatus === 'error'" class="mt-1.5">
       <text class="text-sm text-ink-2 leading-normal">{{ locMessage }}</text>
-      <text class="text-sm text-brand ml-1.5" @tap="$emit('relocate')">重新定位</text>
+      <view class="loc__actions">
+        <text class="text-sm text-brand" @tap="$emit('relocate')">重新定位</text>
+        <text v-if="needSetting" class="text-sm text-warn-text" @tap="$emit('open-settings')">去开启定位权限</text>
+      </view>
     </view>
 
     <view v-else-if="locStatus === 'ok'" class="mt-1.5">
@@ -55,8 +58,10 @@ export default {
     /** 规则是否要求定位；false 时提示「本规则允许不提供定位」，与 PC 文案一致 */
     needLocation: { type: Boolean, default: true },
     todayOffice: { type: Object, default: null },
+    /** 未授权/系统定位关闭时，显示「去开启定位权限」入口 */
+    needSetting: { type: Boolean, default: false },
   },
-  emits: ["relocate"],
+  emits: ["relocate", "open-settings"],
   computed: {
     officeName() {
       if (this.locStatus === "ok" && this.locData && this.locData.office) return this.locData.office.name;
@@ -96,3 +101,12 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+.loc__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+}
+</style>

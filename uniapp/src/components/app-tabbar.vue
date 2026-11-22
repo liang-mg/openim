@@ -117,6 +117,7 @@ export default {
 
 .tabbar__item {
   flex: 1;
+  transition: transform 0.12s ease, opacity 0.12s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -142,6 +143,11 @@ export default {
   font-size: 10px;
   color: var(--ink-3);
   line-height: 1;
+}
+
+.tabbar__item:active {
+  transform: scale(0.94);
+  opacity: 0.82;
 }
 
 .tabbar__item--active .tabbar__label {
