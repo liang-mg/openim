@@ -92,6 +92,7 @@ export default {
       connected: false,
       loading: true,
       busy: false,
+      lastLoadedAt: 0,
       offApp: null,
       offState: null,
       offSync: null,
@@ -131,7 +132,11 @@ export default {
       return;
     }
     if (!this.offApp) {
-      this.offApp = on("application", () => this.loadBadges());
+      this.offApp = on("application", () => {
+        this.loadBadges();
+        // 同意好友/群申请后列表要变，不能只刷红点
+        this.load();
+      });
     }
     if (!this.offSync) {
       this.offSync = on("sync", () => this.load());
@@ -148,6 +153,8 @@ export default {
     useUserStore()
       .fetchProfile()
       .catch(() => {});
+    // 快速来回切 tab 不重复打 4 个接口；超过 3 秒或列表为空才刷新
+    if ((this.friends.length || this.groups.length) && Date.now() - this.lastLoadedAt < 3000) return;
     this.load();
     this.loadBadges();
   },
@@ -221,6 +228,7 @@ export default {
         const [friends, groups] = await Promise.all([listFriends(), listGroups()]);
         this.friends = friends;
         this.groups = groups;
+        this.lastLoadedAt = Date.now();
         put("im:contacts", { friends, groups });
       } catch (e) {
         if (!peek("im:contacts")) {
