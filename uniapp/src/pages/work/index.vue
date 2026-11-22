@@ -27,6 +27,7 @@
 </template>
 
 <script>
+import { hideNativeTabBar } from "@/utils/tabbar";
 import OimAvatar from "@/components/oim-avatar.vue";
 import AppTabbar from "@/components/app-tabbar.vue";
 import CheckinCard from "./components/checkin-card.vue";
@@ -87,6 +88,7 @@ export default {
     },
   },
   onShow() {
+    hideNativeTabBar();
     if (!getToken()) {
       uni.reLaunch({ url: "/pages/login/index" });
       return;

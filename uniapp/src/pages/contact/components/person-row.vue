@@ -1,5 +1,5 @@
 <template>
-  <view class="person-row flex items-center gap-3 px-3.5 py-3 bg-white border-b border-line" @tap="$emit('open', item)">
+  <view class="person-row flex items-center gap-3 px-3.5 py-3 bg-white border-b border-line" @tap="$emit('open', item)" @longpress="$emit('card', item)">
     <oim-avatar :text="(item.name || '?').slice(0, 1)" :size="42" />
 
     <view class="flex-1 min-w-0">
@@ -25,6 +25,6 @@ export default {
   props: {
     item: { type: Object, required: true },
   },
-  emits: ["open"],
+  emits: ["open", "card"],
 };
 </script>

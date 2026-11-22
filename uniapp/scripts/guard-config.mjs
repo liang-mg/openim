@@ -44,7 +44,6 @@ if (fs.existsSync(CONFIG_FILE)) {
       apiOrigin: "string",
       imOrigin: "string",
       wsOrigin: "string",
-      imMode: "string",
       devToken: "string",
     };
     for (const [key, type] of Object.entries(spec)) {

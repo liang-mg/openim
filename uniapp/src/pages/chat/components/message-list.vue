@@ -1,5 +1,11 @@
 <template>
-  <scroll-view class="flex-1 min-h-0 bg-page" scroll-y :scroll-into-view="anchor" :scroll-with-animation="false">
+  <scroll-view
+    class="flex-1 min-h-0 bg-page"
+    scroll-y
+    :scroll-into-view="anchor"
+    :scroll-with-animation="false"
+    @scroll="$emit('scroll', $event)"
+  >
     <view class="px-3 pt-2.5 pb-1">
       <template v-if="messages.length">
         <view v-if="hasMore" class="flex justify-center pt-1.5 pb-2.5" @tap="$emit('load-more')">
@@ -17,13 +23,16 @@
           <text class="chat__time-text text-2xs text-ink-3 bg-black/5 rounded-md px-2 py-0.5">{{ group.label }}</text>
         </view>
 
-        <view
-          v-for="(m, idx) in group.items"
-          :id="`m_${m.clientMsgID}`"
-          :key="m.clientMsgID"
-          class="row flex items-start gap-2"
-          :class="rowClass(group.items, idx)"
-        >
+        <view v-for="(m, idx) in group.items" :key="m.clientMsgID">
+          <view v-if="m.system" class="chat__system flex justify-center py-1.5" :id="`m_${m.clientMsgID}`">
+            <text class="chat__system-text text-2xs text-ink-3 bg-black/5 rounded-md px-2 py-0.5">{{ m.text }}</text>
+          </view>
+          <view
+            v-else
+            :id="`m_${m.clientMsgID}`"
+            class="row flex items-start gap-2"
+            :class="rowClass(group.items, idx)"
+          >
           <oim-avatar v-if="!m.isSelf && showHead(group.items, idx)" :text="(m.senderName || '?').slice(0, 1)" :size="34" />
           <view v-else-if="!m.isSelf" class="row__pad w-[34px] shrink-0" />
 
@@ -33,11 +42,13 @@
               <text class="bubble__text text-md text-ink leading-normal break-all">{{ m.text }}</text>
             </view>
             <text v-if="m.status === 'failed'" class="row__retry text-2xs text-danger mt-1" @tap="$emit('retry', m)">发送失败，点击重发</text>
+            <text v-if="m.status === 'failed' && m.error" class="row__error text-2xs text-ink-4 mt-0.5">{{ m.error }}</text>
             <text v-else-if="m.isSelf && m.status === 'sending'" class="row__status text-2xs text-ink-4 mt-1">发送中…</text>
           </view>
 
-          <oim-avatar v-if="m.isSelf && showHead(group.items, idx)" :text="selfText" :size="34" />
-          <view v-else-if="m.isSelf" class="row__pad w-[34px] shrink-0" />
+            <oim-avatar v-if="m.isSelf && showHead(group.items, idx)" :text="selfText" :size="34" />
+            <view v-else-if="m.isSelf" class="row__pad w-[34px] shrink-0" />
+          </view>
         </view>
       </view>
 
@@ -76,7 +87,7 @@ export default {
     loadingMore: { type: Boolean, default: false },
     anchor: { type: String, default: "" },
   },
-  emits: ["load-more", "retry"],
+  emits: ["load-more", "retry", "scroll"],
   computed: {
     emptyText() {
       return this.connState === "connecting" ? "正在连接 IM…" : "还没有消息，打个招呼吧";

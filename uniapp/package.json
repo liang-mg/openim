@@ -4,7 +4,7 @@
   "private": true,
   "description": "新博 OA 移动端（uni-app / Vue3）。目标：与 frontend/ 的 PC 端功能、样式保持一致，并作为后续 IM 与原生推送的载体。",
   "scripts": {
-    "dev:h5": "uni --port 5174",
+    "dev:h5": "uni --port 5180",
     "build:h5": "uni build",
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
@@ -17,19 +17,23 @@
     "guard:hygiene": "node scripts/guard-hygiene.mjs",
     "guard:config": "node scripts/guard-config.mjs",
     "guard:icons": "node scripts/guard-icons.mjs",
-    "verify": "npm run guard && npm run build:h5"
+    "verify": "npm run guard && npm run build:h5",
+    "env:local": "bash scripts/use-env.sh local",
+    "env:online": "bash scripts/use-env.sh online"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5030420261029002",
     "@dcloudio/uni-app-plus": "3.0.0-5030420261029002",
     "@dcloudio/uni-components": "3.0.0-5030420261029002",
     "@dcloudio/uni-h5": "3.0.0-5030420261029002",
+    "@openim/client-sdk": "^3.8.3-hotfix.0",
     "md5": "^2.3.0",
     "pinia": "^2.1.7",
     "vue": "^3.4.21"
   },
   "devDependencies": {
     "@dcloudio/uni-cli-shared": "3.0.0-5030420261029002",
+    "@dcloudio/uni-uts-v1": "^3.0.0-5030420261029002",
     "@dcloudio/vite-plugin-uni": "3.0.0-5030420261029002",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",

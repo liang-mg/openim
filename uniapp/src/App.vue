@@ -1,9 +1,20 @@
 <script>
 import { CONFIG } from "@/config";
 import { getToken } from "@/utils/storage";
+import { on as onIM, ensureConnection } from "@/api/im";
+import { useIMStore } from "@/store/im";
+
+let offAuth = null;
+let hiddenAt = 0;
 
 export default {
   onLaunch() {
+    // 未读/申请红点全局 store：reLaunch 切 tab 后仍然保留
+    try {
+      useIMStore().bind();
+    } catch (e) {
+      /* Pinia 未就绪时忽略，页面 onShow 还会兜底 */
+    }
     // 全局只做「有没有登录态」的粗判；具体跳转放在页面 onShow，
     // 避免首屏还没渲染完就 reLaunch 造成闪屏（PC 端踩过同样的坑）。
     const token = getToken();
@@ -15,13 +26,34 @@ export default {
         uni.reLaunch({ url: "/pages/login/index" });
       }
     }
+    // 被踢下线 / token 过期：适配层已经清了登录态，这里负责提示并回登录页
+    if (!offAuth) {
+      offAuth = onIM("auth", ({ type } = {}) => {
+        try {
+          useIMStore().reset();
+        } catch (e) {
+          /* ignore */
+        }
+        const title = type === "kicked" ? "账号已在其他设备登录" : "登录已失效，请重新登录";
+        uni.showToast({ title, icon: "none", duration: 2600 });
+        setTimeout(() => uni.reLaunch({ url: "/pages/login/index" }), 700);
+      });
+    }
     // #ifdef H5
     // 排查「这个包连的是哪套环境」时，在控制台看 window.__oaConfig__ 即可
     if (typeof window !== "undefined") window.__oaConfig__ = CONFIG;
     // #endif
   },
-  onShow() {},
-  onHide() {},
+  onShow() {
+    // 从后台/VPN 切换回来时检查一次真实连接；没连上会走 ensureConnection 的重连
+    if (getToken()) {
+      hiddenAt = 0;
+      ensureConnection().catch(() => {});
+    }
+  },
+  onHide() {
+    hiddenAt = Date.now();
+  },
   onError(err) {
     console.error("[oa] app error", err);
   },

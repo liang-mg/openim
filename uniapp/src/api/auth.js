@@ -14,8 +14,8 @@ import { chatPost } from "@/utils/request";
 import { setAuth } from "@/utils/storage";
 
 const AREA_CODE = "+86";
-// 与 PC 端一致：H5/App 都按 Web 平台上报
-const PLATFORM_ID = 5;
+// 平台号必须与 IM SDK 初始化一致：H5=5(Web)、Android=2、iOS=1
+const PLATFORM_ID = CONFIG.imPlatformID;
 
 /**
  * 账号密码登录。
@@ -24,7 +24,7 @@ const PLATFORM_ID = 5;
 export async function loginByPassword({ account, password }) {
   const body = await chatPost("/account/login", {
     phoneNumber: String(account || "").trim(),
-    password: md5(String(password || "")),
+    password: md5(String(password || "").trim()),
     areaCode: AREA_CODE,
     platform: PLATFORM_ID,
   });
@@ -32,7 +32,13 @@ export async function loginByPassword({ account, password }) {
   // 两种后端版本：直接返回字段，或包在 data 里
   const data = body && body.userID ? body : body && body.data ? body.data : body;
   if (!data || !data.chatToken || !data.userID) {
-    throw new Error("登录返回缺少 chatToken / userID");
+    const e = new Error("登录返回缺少 chatToken / userID");
+    e.detail = {
+      url: `${CONFIG.chatBase}/account/login`,
+      bodyType: typeof body,
+      bodyPreview: String(typeof body === "string" ? body : JSON.stringify(body || {})).slice(0, 180),
+    };
+    throw e;
   }
   setAuth(data);
   return data;
@@ -64,8 +70,9 @@ export function describeLoginError(err) {
   if (/500|502|503|504|网络|超时|fail|ECONNREFUSED/i.test(msg)) {
     return "IM 登录服务不可达（/chat 接口）。请确认 openim-chat 已启动，本机联调可先用「本地联调进入」。";
   }
-  if (/返回缺少|返回格式|不是 JSON|Unexpected token/i.test(msg)) {
-    return "登录接口返回异常：可能连到了没有 IM 服务的地址（例如静态站点把 /chat 回落成了首页）。请检查接口地址配置。";
+  if (/返回缺少|返回格式|不是 JSON|HTML|Unexpected token/i.test(msg)) {
+    const target = CONFIG.rawImOrigin || CONFIG.rawOrigin || "同源";
+    return `登录接口返回异常（当前地址：${target}）：可能连到了没有 IM 服务的地址（例如静态站点把 /chat 回落成了首页）。请检查接口地址配置，或在登录页点“恢复默认生产接口”。`;
   }
   if (/密码|password|凭证|credential/i.test(msg)) return "账号或密码错误，请重试。";
   if (/不存在|未注册|not\s*found/i.test(msg)) return "账号不存在，请联系管理员开通。";
@@ -73,5 +80,5 @@ export function describeLoginError(err) {
 }
 
 export function goHome() {
-  uni.reLaunch({ url: HOME_PATH });
+  uni.switchTab({ url: HOME_PATH });
 }

@@ -15,7 +15,6 @@
  *   imOrigin   IM 服务源（登录 / 会话 / 消息 / 通讯录）。留空 = 跟随 apiOrigin。
  *              ★ 业务与登录是两套服务，可以分别指向不同域名。
  *   wsOrigin   IM WebSocket 源，留空时从 imOrigin 推导（http→ws / https→wss）
- *   imMode     mock（假数据）| api（后端站内通知）| sdk（OpenIM 插件）
  *   devToken   仅本地联调用；生产必须留空
  */
 window.__OA_CONFIG__ = {
@@ -23,6 +22,5 @@ window.__OA_CONFIG__ = {
   apiOrigin: "",
   imOrigin: "",
   wsOrigin: "",
-  imMode: "mock",
   devToken: "",
 };

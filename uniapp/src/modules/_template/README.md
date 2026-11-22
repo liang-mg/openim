@@ -4,13 +4,12 @@
 cp -r src/modules/_template src/modules/<domain>
 ```
 
-一个模块分四层，**页面只做装配，规则写在 definition，数据走 api**：
+一个模块分三层，**页面只做装配，规则写在 definition，数据走 api**：
 
 ```
 modules/<domain>/
 ├── definition.js     # 字段、状态、动作、校验：只声明，不执行
 ├── api/index.js      # 调 src/api/oa.js 里的函数（必须与 PC 端同名同参）
-├── mock/index.js     # 内存假数据，只给独立测试用，不进页面运行链路
 └── pages/
     ├── list.vue      # 列表：筛选 + 分页
     └── detail.vue    # 详情：只读展示 + 动作入口

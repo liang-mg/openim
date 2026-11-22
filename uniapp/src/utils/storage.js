@@ -10,6 +10,7 @@
  */
 
 import { clear as clearPageCache } from "./swr";
+import { clearAll as clearIMOutbox } from "./imOutbox";
 
 const K_TOKEN = "oa_chat_token";
 const K_IM_TOKEN = "oa_im_token";
@@ -60,8 +61,9 @@ export const clearAuth = () => {
   remove(K_IM_TOKEN);
   remove(K_USER_ID);
   remove(K_PROFILE);
-  // 退出/401 时必须清页面缓存，否则换账号会看到上一个人的数据
+  // 退出/401 时必须清页面缓存和未发送消息，否则换账号会看到上一个人的数据
   clearPageCache();
+  clearIMOutbox();
 };
 
 export const getProfileCache = () => get(K_PROFILE, null);

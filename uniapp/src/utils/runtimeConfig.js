@@ -9,12 +9,17 @@
  * 覆盖值只影响接口地址，不影响权限（权限永远在服务端判）。
  */
 const KEY = "oa_runtime_override";
+const KEY_ENABLED = "oa_runtime_override_enabled";
 
 /** 读取覆盖值；无则 null
  *  兼容两种落盘：uni 自己写的 `{type,data}` 包装，以及外部/脚本直接写的 JSON 字符串
  *  （uni H5 的 getStorageSync 对没有 type 字段的裸 JSON 会原样返回字符串） */
 export function getOverride() {
   try {
+    // 旧版本遗留的地址没有“用户明确设置”标记，正式包直接忽略，
+    // 避免升级后还拿旧的 local/static 地址去请求 /chat。
+    const enabled = uni.getStorageSync(KEY_ENABLED);
+    if (!enabled) return null;
     let v = uni.getStorageSync(KEY);
     if (typeof v === "string" && v.trim().startsWith("{")) {
       try {
@@ -34,14 +39,10 @@ export function getOverride() {
 }
 
 /** 写入覆盖值（全部传空表示「恢复默认」） */
-export function setOverride({ apiOrigin = "", imOrigin = "", env = "", imMode = "" } = {}) {
+export function setOverride({ apiOrigin = "", imOrigin = "", env = "" } = {}) {
   const origin = String(apiOrigin || "").trim().replace(/\/$/, "");
   const im = String(imOrigin || "").trim().replace(/\/$/, "");
-  const mode = String(imMode || "").trim();
-  if (mode && !["mock", "api", "sdk"].includes(mode)) {
-    throw new Error("imMode 只能是 mock / api / sdk");
-  }
-  if (!origin && !im && !mode) {
+  if (!origin && !im) {
     clearOverride();
     return null;
   }
@@ -50,14 +51,16 @@ export function setOverride({ apiOrigin = "", imOrigin = "", env = "", imMode = 
       throw new Error(`${label}必须以 http:// 或 https:// 开头`);
     }
   }
-  const value = { apiOrigin: origin, imOrigin: im, env: env || "custom", imMode: mode };
+  const value = { apiOrigin: origin, imOrigin: im, env: env || "custom" };
   uni.setStorageSync(KEY, value);
+  uni.setStorageSync(KEY_ENABLED, 1);
   return value;
 }
 
 export function clearOverride() {
   try {
     uni.removeStorageSync(KEY);
+    uni.removeStorageSync(KEY_ENABLED);
   } catch (e) {
     /* ignore */
   }

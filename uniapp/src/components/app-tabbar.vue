@@ -23,13 +23,15 @@
 <script>
 import OimAvatar from "@/components/oim-avatar.vue";
 import { useUserStore } from "@/store/user";
+import { useIMStore } from "@/store/im";
 
 /**
  * 底部导航，与 PC 端 frontend/src/layout/MobileTabBar 对齐：
  *   消息 / 通讯录 / 工作 / 我 —— 4 个入口，「我」用头像而不是图标，
  *   进入详情页时由页面自己传 visible=false 隐藏。
  *
- * 用 reLaunch 切页：这些页面没有做成原生 tabBar，避免 tab 栈叠加和状态残留。
+ * 页面已注册为原生 tabBar，但原生条隐藏，仍用本组件保持设计。
+ * 用 uni.switchTab 切页：页面实例保留，切 tab 不再重建页面/重新拉 IM 首屏。
  */
 export default {
   name: "AppTabbar",
@@ -40,6 +42,12 @@ export default {
     visible: { type: Boolean, default: true },
   },
   computed: {
+    imUnread() {
+      return useIMStore().unread;
+    },
+    contactBadge() {
+      return useIMStore().contactApplications;
+    },
     avatarText() {
       // 「我」用头像首字，与 PC 端 MobileTabBar 一致
       return useUserStore().avatarText || "我";
@@ -52,7 +60,7 @@ export default {
           path: "/pages/message/index",
           icon: "/static/tabbar/nav_bar_message.png",
           activeIcon: "/static/tabbar/nav_bar_message_active.png",
-          badge: this.unread,
+          badge: Math.max(Number(this.unread || 0), Number(this.imUnread || 0)),
         },
         {
           key: "contact",
@@ -60,7 +68,7 @@ export default {
           path: "/pages/contact/index",
           icon: "/static/tabbar/nav_bar_contact.png",
           activeIcon: "/static/tabbar/nav_bar_contact_active.png",
-          badge: 0,
+          badge: this.contactBadge,
         },
         {
           key: "work",
@@ -84,7 +92,7 @@ export default {
   methods: {
     go(tab) {
       if (this.active === tab.key) return;
-      uni.reLaunch({ url: tab.path });
+      uni.switchTab({ url: tab.path });
     },
   },
 };

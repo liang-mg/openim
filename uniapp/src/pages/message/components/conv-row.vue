@@ -44,7 +44,7 @@ export default {
     },
     lastText() {
       const m = this.lastMsg || {};
-      // mock 里是 { text }，OpenIM 里是 { content: { text } }，两种都要认
+      // 适配层同时给 text 与 content.text，这里两种都认
       const raw = m.text != null ? m.text : m.content && m.content.text;
       const text = typeof raw === "string" ? raw : "";
       if (!text) return "";

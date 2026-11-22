@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
 import uni from "@dcloudio/vite-plugin-uni";
 import tailwindcss from "tailwindcss";
@@ -6,7 +7,7 @@ import autoprefixer from "autoprefixer";
 /**
  * 移动端 H5 / App 开发服务器。
  *
- * 端口 5174：5173 留给 PC 端（frontend/），两个前端可以同时开。
+ * 端口 5180：5173 留给 PC 端（frontend/），5174 常被其他项目占用。
  * 所有后端都走同源相对路径（/oa、/api、/chat、/msg_gateway...），
  * 与 frontend/nginx/site.conf 的反代规则保持一致 —— 这样同一份代码
  * 在 dev、浏览器、APK 里的请求路径完全一样，不用改地址。
@@ -40,6 +41,15 @@ export default defineConfig(({ mode }) => {
   return {
     define,
     plugins: [uni()],
+    resolve: {
+      alias: {
+        // 兼容 @openim/client-sdk 里指向未发布 .js 的深层 import
+        "@openim/protocol/lib/pb/sdkws/sdkws": path.resolve(
+          process.cwd(),
+          "src/shims/openim-protocol-sdkws.js"
+        ),
+      },
+    },
     /**
      * Tailwind 必须在这里挂：uni 插件会用自己的 postcss 预设接管 css 处理，
      * 项目根的 postcss.config.js 不会被读取（实测 @apply 会原样留在产物里）。
@@ -51,13 +61,22 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host: "127.0.0.1",
-      port: Number(env.VITE_DEV_PORT) || 5174,
+      port: Number(env.VITE_DEV_PORT) || 5180,
       strictPort: true,
       // 忽略编辑器/工具写入时留下的临时目录，否则 Windows 上会 EBUSY 把 dev server 带崩
       watch: {
         ignored: ["**/.git/**", "**/node_modules/**", "**/*.tmpdir/**", "**/.*.tmp*"],
       },
       proxy: {
+        // H5 开发切「线上」时走同源 /proxy，绕开生产站点的 CORS 限制。
+        // /proxy/oa/... -> https://im.9ty.lol/oa/...；/proxy/msg_gateway 走 WS。
+        "/proxy": {
+          target: "https://im.9ty.lol",
+          changeOrigin: true,
+          secure: true,
+          ws: true,
+          rewrite: (p) => p.replace(/^\/proxy/, ""),
+        },
         // OA 业务服务：后端路由自带 /oa 前缀，不能 rewrite
         "/oa": { target: origin("VITE_PROXY_OA", "http://127.0.0.1:10010"), changeOrigin: true },
         // IM 服务

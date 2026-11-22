@@ -1,0 +1,359 @@
+import { UTSiOS } from 'DCloudUTSFoundation'
+import { normalizeOperationID, stringifyJSON, rejectNativeError, readNativeValue, NativeParserHelpers, buildJSONField, stringifyJSONString, stringifyJSONNumber, stringifyJSONBoolean, appendJSONText, appendOptionalJSONStringText, appendOptionalJSONNumberText, appendOptionalJSONBooleanText, stringifyStringList, stringifyOpenIMMessageEntityList, parseNativeUploadFileResultCommon, parseNativeUploadFileProgressEventCommon, parseNativeUploadLogsProgressEventCommon, parseNativeSendMessageProgressEventCommon, parseNativeConversationEventListCommon, parseNativeConversationObjectCommon, parseNativeConversationListResultCommon, parseNativeConversationListResultFallbackCommon, parseNativeUserListResultCommon, parseNativeUserObjectCommon, parseNativeUserStatusListResultCommon, parseNativeUserStatusEventListCommon, parseNativeCheckFriendResultCommon, parseNativeFriendListResultCommon, parseNativeFriendListResultFallbackCommon, parseNativeFriendObjectCommon, parseNativeBlackListResultCommon, parseNativeBlackUserObjectCommon, parseNativeGroupListResultCommon, parseNativeGroupListResultFallbackCommon, parseNativeGroupObjectCommon, parseNativeGroupMemberListResultCommon, parseNativeGroupMemberListResultFallbackCommon, parseNativeGroupMemberObjectCommon, parseNativeFriendApplicationListResultCommon, parseNativeFriendApplicationListResultFallbackCommon, parseNativeFriendApplicationObjectCommon, parseNativeGroupApplicationListResultCommon, parseNativeGroupApplicationListResultFallbackCommon, parseNativeGroupApplicationObjectCommon, parseNativeConversationInputStatusCommon, parseNativeMessageCommon, parseNativeAdvancedHistoryMessageListCommon, parseNativeAdvancedHistoryMessageListFallbackCommon, parseNativeMessageEventListCommon, parseNativeMessageEventListFallbackCommon, parseNativeFindMessageResultCommon, parseNativeMessageListResultCommon, parseNativeSearchMessageResultCommon, parseNativeMessageRevokedCommon, parseNativeMessageReceiptListCommon, parseNativeLoginStatusCommon } from '../common/native-call-common.uts'
+export { normalizeOperationID, stringifyJSON, rejectNativeError, stringifyOpenIMMessageEntityList }
+import {
+  OpenIMInitConfig,
+  OpenIMAdvancedHistoryMessageListResult,
+  OpenIMBlackListResult,
+  OpenIMBlackUserItem,
+  OpenIMCheckFriendResult,
+  OpenIMAdvancedTextElem,
+  OpenIMAtTextElem,
+  OpenIMAtUsersInfoItem,
+  OpenIMCardElem,
+  OpenIMConversationItem,
+  OpenIMConversationListResult,
+  OpenIMFaceElem,
+  OpenIMFileElem,
+  OpenIMLocationElem,
+  OpenIMCustomElem,
+  OpenIMFriendApplicationItem,
+  OpenIMFriendApplicationListResult,
+  OpenIMFriendListResult,
+  OpenIMFriendUserItem,
+  OpenIMGroupApplicationItem,
+  OpenIMGroupApplicationListResult,
+  OpenIMGroupItem,
+  OpenIMGroupListResult,
+  OpenIMGroupMemberItem,
+  OpenIMGroupMemberListResult,
+  OpenIMLoginStatus,
+  OpenIMMessageReceiptListResult,
+  OpenIMMessageRevokedItem,
+  OpenIMMessageItem,
+  OpenIMMessageItemRef,
+  OpenIMMessageListResult,
+  OpenIMMergeElem,
+  OpenIMFindMessageResult,
+  OpenIMSearchMessageResult,
+  OpenIMPicture,
+  OpenIMPictureElem,
+  OpenIMQuoteElem,
+  OpenIMSoundElem,
+  OpenIMUserInfo,
+  OpenIMConversationInputStatusItem,
+  OpenIMUserListResult,
+  OpenIMUserStatusListResult,
+  OpenIMAttachedGroupHasReadInfo,
+  OpenIMAttachedInfoElem,
+  OpenIMTextElem,
+  OpenIMVideoElem,
+  OpenIMUploadProgress,
+  OpenIMUploadFileResult,
+  OpenIMUploadFileProgressEvent,
+  OpenIMUploadLogsProgressEvent,
+  OpenIMSendMessageProgressEvent
+} from '../interface.uts'
+
+type NativeOpenIMInitConfig = {
+  platformID : number
+  apiAddr : string
+  wsAddr : string
+  dataDir : string
+  logFilePath : string
+  logLevel : number
+  isLogStandardOutput : boolean
+  systemType : string
+}
+
+function normalizeWritablePath(path : string | null) : string {
+  if (path == null || path.length == 0 || path.indexOf('unifile:') >= 0) {
+    return UTSiOS.getDataPath()
+  }
+  return path
+}
+
+export function getOpenIMDataPathNative() : string {
+  return UTSiOS.getDataPath()
+}
+
+export function normalizeInitConfig(config : OpenIMInitConfig) : string {
+  const nativeConfig : NativeOpenIMInitConfig = {
+    platformID: config.platformID,
+    apiAddr: config.apiAddr,
+    wsAddr: config.wsAddr,
+    dataDir: normalizeWritablePath(config.dataDir != null ? config.dataDir as string : null),
+    logFilePath: normalizeWritablePath(config.logFilePath != null ? config.logFilePath as string : null),
+    logLevel: config.logLevel,
+    isLogStandardOutput: config.isLogStandardOutput,
+    systemType: config.systemType
+  }
+  const configText = JSON.stringify(nativeConfig as any)
+  if (configText != null) {
+    return configText as string
+  }
+  return '{}'
+}
+
+export function parseNativeMessage(data : string) : OpenIMMessageItem | null {
+  const message = parseNativeMessageCommon(data, getNativeParserHelpers())
+  if (message == null) { return null }
+  if (message.content == null || (message.content as string).length == 0) {
+    const raw = parseNativeAny(data)
+    if (raw instanceof UTSJSONObject) {
+      const atTextElem = readNativeValue(raw, 'atTextElem')
+      if (atTextElem instanceof UTSJSONObject) {
+        const content = JSON.stringify(atTextElem)
+        if (content != null) {
+          message.content = content as string
+        }
+      }
+    }
+  }
+  return message
+}
+
+export function readStringParam(value : any | null, key : string) : string {
+  const raw = readNativeValue(value, key)
+  if (raw != null) {
+    if (typeof raw == 'string') {
+      return raw as string
+    }
+  }
+  return ''
+}
+
+export function readNumberParam(value : any | null, key : string) : number {
+  if (value instanceof UTSJSONObject) {
+    const parsed = value.getNumber(key)
+    if (parsed != null) {
+      const normalized = parseFloat((parsed as number).toString())
+      if (isFinite(normalized)) { return normalized }
+    }
+  }
+  const raw = readNativeValue(value, key)
+  if (raw != null) {
+    if (typeof raw == 'number') {
+      return raw as number
+    }
+  }
+  return 0
+}
+
+export function readBooleanParam(value : any | null, key : string) : boolean {
+  if (value instanceof UTSJSONObject) {
+    const parsed = value.getBoolean(key)
+    if (parsed != null) { return parsed as boolean }
+  }
+  const raw = readNativeValue(value, key)
+  if (raw != null) {
+    if (typeof raw == 'boolean') {
+      return raw as boolean
+    }
+  }
+  return false
+}
+
+function parseNativeAny(data : string) : any | null {
+  const trimmed = data.trim()
+  if (trimmed.length == 0) {
+    return null
+  }
+  try {
+    return JSON.parse(trimmed)
+  } catch (error) {
+    return data
+  }
+}
+
+function parseNativeJSONObjectListData(data : string) : Array<UTSJSONObject> | null {
+  const framed = NativeOpenIMSDK.splitJSONObjectArray(data)
+  if (framed == null) { return null }
+  const framedText = framed as string
+  if (framedText.length == 0) { return [] }
+  const result : Array<UTSJSONObject> = []
+  const itemJSONList = framedText.split('\n')
+  let valid = true
+  itemJSONList.forEach((itemJSON : string) => {
+    const value = JSON.parseObject(itemJSON)
+    if (value != null) {
+      result.push(value)
+    } else {
+      valid = false
+    }
+  })
+  return valid ? result : null
+}
+
+export { stringifyOpenIMPicture, stringifyOpenIMSoundElem, stringifyOpenIMVideoElem, stringifyOpenIMFileElem, stringifyOpenIMMessage, stringifyOpenIMMessageList, stringifyOpenIMMessagePayload } from '../common/message-json-writer.uts'
+}
+
+function isRequiredNumberField(value : UTSJSONObject, key : string) : boolean {
+  return value.getNumber(key) != null
+}
+
+function isRequiredStringField(value : UTSJSONObject, key : string) : boolean {
+  const raw = readNativeValue(value, key)
+  return raw != null && typeof raw == 'string'
+}
+
+function isRequiredBooleanField(value : UTSJSONObject, key : string) : boolean {
+  return value.getBoolean(key) != null
+}
+
+function isOptionalNumberField(value : UTSJSONObject, key : string) : boolean {
+  const raw = readNativeValue(value, key)
+  return raw == null || value.getNumber(key) != null
+}
+
+function isCommonRequiredField(value : UTSJSONObject, key : string) : boolean {
+  if (key == 'isRead' || key == 'isEnd') { return isRequiredBooleanField(value, key) }
+  if (key == 'conversationType' || key == 'recvMsgOpt' || key == 'unreadCount' || key == 'latestMsgSendTime' || key == 'draftTextTime' || key == 'burnDuration' || key == 'minSeq' || key == 'maxSeq' || key == 'msgDestructTime' || key == 'groupAtType' || key == 'updateUnreadCountTime' || key == 'status' || key == 'type' || key == 'createTime' || key == 'sendTime' || key == 'sessionType' || key == 'msgFrom' || key == 'contentType' || key == 'senderPlatformID' || key == 'seq' || key == 'revokeTime' || key == 'readTime' || key == 'addSource' || key == 'memberCount' || key == 'groupType' || key == 'needVerification' || key == 'lookMemberInfo' || key == 'applyMemberFriend' || key == 'notificationUpdateTime' || key == 'roleLevel' || key == 'joinTime' || key == 'joinSource' || key == 'muteEndTime' || key == 'handleResult' || key == 'handleTime' || key == 'reqTime' || key == 'handledTime' || key == 'errCode' || key == 'result') {
+    return isRequiredNumberField(value, key)
+  }
+  return isRequiredStringField(value, key)
+}
+
+function parseNativeConversationItemData(data : string) : OpenIMConversationItem | null { return JSON.parseObject<OpenIMConversationItem>(data) }
+
+function parseNativeConversationListData(data : string) : Array<OpenIMConversationItem> | null { return JSON.parseArray<OpenIMConversationItem>(data) }
+
+function parseNativeUserInfoData(data : string) : OpenIMUserInfo | null { return JSON.parseObject<OpenIMUserInfo>(data) }
+
+function parseNativeUserInfoListData(data : string) : Array<OpenIMUserInfo> | null { return JSON.parseArray<OpenIMUserInfo>(data) }
+
+function parseNativeFriendUserListData(data : string) : Array<OpenIMFriendUserItem> | null { return JSON.parseArray<OpenIMFriendUserItem>(data) }
+
+function parseNativeBlackUserListData(data : string) : Array<OpenIMBlackUserItem> | null { return JSON.parseArray<OpenIMBlackUserItem>(data) }
+
+function parseNativeGroupData(data : string) : OpenIMGroupItem | null { return JSON.parseObject<OpenIMGroupItem>(data) }
+
+function parseNativeGroupListData(data : string) : Array<OpenIMGroupItem> | null { return JSON.parseArray<OpenIMGroupItem>(data) }
+
+function parseNativeGroupMemberListData(data : string) : Array<OpenIMGroupMemberItem> | null { return JSON.parseArray<OpenIMGroupMemberItem>(data) }
+
+function parseNativeFriendApplicationListData(data : string) : Array<OpenIMFriendApplicationItem> | null { return JSON.parseArray<OpenIMFriendApplicationItem>(data) }
+
+function parseNativeGroupApplicationListData(data : string) : Array<OpenIMGroupApplicationItem> | null { return JSON.parseArray<OpenIMGroupApplicationItem>(data) }
+
+function parseNativeMessageData(data : string) : OpenIMMessageItem | null { return JSON.parseObject<OpenIMMessageItem>(data) }
+
+function parseNativeMessageListData(data : string) : Array<OpenIMMessageItem> | null { return JSON.parseArray<OpenIMMessageItem>(data) }
+
+function parseNativeAdvancedHistoryMessageListData(data : string) : OpenIMAdvancedHistoryMessageListResult | null { return JSON.parseObject<OpenIMAdvancedHistoryMessageListResult>(data) }
+
+function parseNativeStringListData(data : string) : Array<string> | null { return JSON.parseArray<string>(data) }
+
+const nativeParserHelpers : NativeParserHelpers = {
+  parseNativeAny: (data : string) : any | null => { return parseNativeAny(data) },
+  parseNativeJSONObjectListData: (data : string) : Array<UTSJSONObject> | null => { return parseNativeJSONObjectListData(data) },
+  parseNativeConversationItemData: (data : string) : OpenIMConversationItem | null => { return parseNativeConversationItemData(data) },
+  parseNativeConversationListData: (data : string) : Array<OpenIMConversationItem> | null => { return parseNativeConversationListData(data) },
+  parseNativeUserInfoData: (data : string) : OpenIMUserInfo | null => { return parseNativeUserInfoData(data) },
+  parseNativeUserInfoListData: (data : string) : Array<OpenIMUserInfo> | null => { return parseNativeUserInfoListData(data) },
+  parseNativeFriendUserListData: (data : string) : Array<OpenIMFriendUserItem> | null => { return parseNativeFriendUserListData(data) },
+  parseNativeBlackUserListData: (data : string) : Array<OpenIMBlackUserItem> | null => { return parseNativeBlackUserListData(data) },
+  parseNativeGroupData: (data : string) : OpenIMGroupItem | null => { return parseNativeGroupData(data) },
+  parseNativeGroupListData: (data : string) : Array<OpenIMGroupItem> | null => { return parseNativeGroupListData(data) },
+  parseNativeGroupMemberListData: (data : string) : Array<OpenIMGroupMemberItem> | null => { return parseNativeGroupMemberListData(data) },
+  parseNativeFriendApplicationListData: (data : string) : Array<OpenIMFriendApplicationItem> | null => { return parseNativeFriendApplicationListData(data) },
+  parseNativeGroupApplicationListData: (data : string) : Array<OpenIMGroupApplicationItem> | null => { return parseNativeGroupApplicationListData(data) },
+  parseNativeMessageData: (data : string) : OpenIMMessageItem | null => { return parseNativeMessageData(data) },
+  parseNativeMessageListData: (data : string) : Array<OpenIMMessageItem> | null => { return parseNativeMessageListData(data) },
+  parseNativeAdvancedHistoryMessageListData: (data : string) : OpenIMAdvancedHistoryMessageListResult | null => { return parseNativeAdvancedHistoryMessageListData(data) },
+  parseNativeStringListData: (data : string) : Array<string> | null => { return parseNativeStringListData(data) },
+  readStringParam: (value : any | null, key : string) : string => { return readStringParam(value, key) },
+  readNumberParam: (value : any | null, key : string) : number => { return readNumberParam(value, key) },
+  readBooleanParam: (value : any | null, key : string) : boolean => { return readBooleanParam(value, key) },
+  isRequiredField: (value : UTSJSONObject, key : string) : boolean => { return isCommonRequiredField(value, key) },
+  isOptionalNumberField: (value : UTSJSONObject, key : string) : boolean => { return isOptionalNumberField(value, key) }
+}
+
+function getNativeParserHelpers() : NativeParserHelpers { return nativeParserHelpers }
+
+export function parseNativeUploadFileResult(data : string) : OpenIMUploadFileResult | null { return parseNativeUploadFileResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeUploadFileProgressEvent(data : string) : OpenIMUploadFileProgressEvent | null { return parseNativeUploadFileProgressEventCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeUploadLogsProgressEvent(data : string) : OpenIMUploadLogsProgressEvent | null { return parseNativeUploadLogsProgressEventCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeSendMessageProgressEvent(data : string) : OpenIMSendMessageProgressEvent | null { return parseNativeSendMessageProgressEventCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeConversationEventList(data : string) : OpenIMConversationListResult | null { return parseNativeConversationEventListCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeConversationObject(data : string) : OpenIMConversationItem | null { return parseNativeConversationObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeConversationListResult(data : string) : OpenIMConversationListResult | null { return parseNativeConversationListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeConversationListResultFallback(data : string) : OpenIMConversationListResult | null { return parseNativeConversationListResultFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeUserListResult(data : string) : OpenIMUserListResult | null { return parseNativeUserListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeUserObject(data : string) : OpenIMUserInfo | null { return parseNativeUserObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeUserStatusListResult(data : string) : OpenIMUserStatusListResult | null { return parseNativeUserStatusListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeUserStatusEventList(data : string) : OpenIMUserStatusListResult | null { return parseNativeUserStatusEventListCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeCheckFriendResult(data : string) : OpenIMCheckFriendResult | null { return parseNativeCheckFriendResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFriendListResult(data : string) : OpenIMFriendListResult | null { return parseNativeFriendListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFriendListResultFallback(data : string) : OpenIMFriendListResult | null { return parseNativeFriendListResultFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFriendObject(data : string) : OpenIMFriendUserItem | null { return parseNativeFriendObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeBlackListResult(data : string) : OpenIMBlackListResult | null { return parseNativeBlackListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeBlackUserObject(data : string) : OpenIMBlackUserItem | null { return parseNativeBlackUserObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupListResult(data : string) : OpenIMGroupListResult | null { return parseNativeGroupListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupListResultFallback(data : string) : OpenIMGroupListResult | null { return parseNativeGroupListResultFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupObject(data : string) : OpenIMGroupItem | null { return parseNativeGroupObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupMemberListResult(data : string) : OpenIMGroupMemberListResult | null { return parseNativeGroupMemberListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupMemberListResultFallback(data : string) : OpenIMGroupMemberListResult | null { return parseNativeGroupMemberListResultFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupMemberObject(data : string) : OpenIMGroupMemberItem | null { return parseNativeGroupMemberObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFriendApplicationListResult(data : string) : OpenIMFriendApplicationListResult | null { return parseNativeFriendApplicationListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFriendApplicationListResultFallback(data : string) : OpenIMFriendApplicationListResult | null { return parseNativeFriendApplicationListResultFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFriendApplicationObject(data : string) : OpenIMFriendApplicationItem | null { return parseNativeFriendApplicationObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupApplicationListResult(data : string) : OpenIMGroupApplicationListResult | null { return parseNativeGroupApplicationListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupApplicationListResultFallback(data : string) : OpenIMGroupApplicationListResult | null { return parseNativeGroupApplicationListResultFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeGroupApplicationObject(data : string) : OpenIMGroupApplicationItem | null { return parseNativeGroupApplicationObjectCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeConversationInputStatus(data : string) : OpenIMConversationInputStatusItem | null { return parseNativeConversationInputStatusCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeMessageRevoked(data : string) : OpenIMMessageRevokedItem | null { return parseNativeMessageRevokedCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeMessageReceiptList(data : string) : OpenIMMessageReceiptListResult | null { return parseNativeMessageReceiptListCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeAdvancedHistoryMessageList(data : string) : OpenIMAdvancedHistoryMessageListResult | null { return parseNativeAdvancedHistoryMessageListCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeAdvancedHistoryMessageListFallback(data : string) : OpenIMAdvancedHistoryMessageListResult | null { return parseNativeAdvancedHistoryMessageListFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeMessageEventList(data : string) : OpenIMMessageListResult | null {
+  return parseNativeMessageEventListCommon(data, getNativeParserHelpers())
+}
+
+export function parseNativeMessageEventListFallback(data : string) : OpenIMMessageListResult | null { return parseNativeMessageEventListFallbackCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeFindMessageResult(data : string) : OpenIMFindMessageResult | null { return parseNativeFindMessageResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeMessageListResult(data : string) : OpenIMFindMessageResult | null { return parseNativeMessageListResultCommon(data, getNativeParserHelpers()) }
+
+export function parseNativeSearchMessageResult(data : string) : OpenIMSearchMessageResult | null { return parseNativeSearchMessageResultCommon(data, getNativeParserHelpers()) }
+
+
+export function parseNativeLoginStatus(data : string) : OpenIMLoginStatus {
+  return parseNativeLoginStatusCommon(data)
+}

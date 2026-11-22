@@ -37,16 +37,13 @@
 
     <!-- 环境切换（长按版本号）：一次打包，多环境切换，重启生效 -->
     <bottom-sheet :open="envOpen" title="运行环境" desc="留空 = 跟随部署配置（同源）。填 https://域名 可直连指定后端，保存后重启生效。" @close="envOpen = false">
-      <form-field label="消息来源（IM）" hint="假数据=本地演示；后端通知=真实通知接口；OpenIM=真会话（需 IM 服务）">
+      <form-field label="接口环境" hint="本地=同源代理（H5 开发）；线上=https://im.9ty.lol。保存后重启生效。">
         <view class="mode-row">
-          <view
-            v-for="m in modes"
-            :key="m.value"
-            class="mode"
-            :class="{ 'mode--active': envMode === m.value }"
-            @tap="envMode = m.value"
-          >
-            <text class="mode__text" :class="{ 'mode__text--active': envMode === m.value }">{{ m.label }}</text>
+          <view class="mode" :class="{ 'mode--active': envMode === 'local' }" @tap="pickEnv('local')">
+            <text class="mode__text" :class="{ 'mode__text--active': envMode === 'local' }">本地</text>
+          </view>
+          <view class="mode" :class="{ 'mode--active': envMode === 'online' }" @tap="pickEnv('online')">
+            <text class="mode__text" :class="{ 'mode__text--active': envMode === 'online' }">线上</text>
           </view>
         </view>
       </form-field>
@@ -68,6 +65,7 @@
 </template>
 
 <script>
+import { hideNativeTabBar } from "@/utils/tabbar";
 import PageHeader from "@/components/page-header.vue";
 import AppIcon from "@/components/app-icon.vue";
 import StatusTag from "@/components/status-tag.vue";
@@ -79,6 +77,7 @@ import MineRow from "./components/mine-row.vue";
 import { CONFIG } from "@/config";
 import { useUserStore } from "@/store/user";
 import { getToken } from "@/utils/storage";
+import { disconnect } from "@/api/im";
 import { getOverride, setOverride, clearOverride } from "@/utils/runtimeConfig";
 
 /**
@@ -97,12 +96,7 @@ export default {
       envOpen: false,
       envDraft: CONFIG.origin || "",
       imDraft: CONFIG.imOrigin || "",
-      envMode: CONFIG.imMode,
-      modes: [
-        { value: "mock", label: "假数据" },
-        { value: "api", label: "后端通知" },
-        { value: "sdk", label: "OpenIM" },
-      ],
+      envMode: "local",
     };
   },
   computed: {
@@ -110,15 +104,15 @@ export default {
       return useUserStore();
     },
     envLabel() {
-      const mode = CONFIG.imMode;
       const override = getOverride();
-      if (override && (override.apiOrigin || override.imOrigin || override.imMode)) {
-        return `${override.env} · 业务 ${override.apiOrigin || "同源"} · IM ${override.imOrigin || "跟随业务"} · ${override.imMode || mode}`;
+      if (override && (override.apiOrigin || override.imOrigin)) {
+        return `本地覆盖 · 业务 ${override.apiOrigin || "同源"} · IM ${override.imOrigin || "跟随业务"}${CONFIG.devProxy ? "（开发代理）" : ""}`;
       }
-      return `${CONFIG.envName} · 业务 ${CONFIG.origin || "同源"} · IM ${CONFIG.imOrigin ? CONFIG.imOrigin : "跟随业务"} · ${mode}`;
+      return `${CONFIG.envName} · 业务 ${CONFIG.rawOrigin || "同源"} · IM ${CONFIG.rawImOrigin || "跟随业务"}${CONFIG.devProxy ? "（开发代理）" : ""}`;
     },
   },
   onShow() {
+    hideNativeTabBar();
     if (!getToken()) {
       uni.reLaunch({ url: "/pages/login/index" });
       return;
@@ -127,9 +121,9 @@ export default {
   },
   methods: {
     openEnv() {
-      this.envDraft = CONFIG.origin || "";
-      this.imDraft = CONFIG.imOrigin || "";
-      this.envMode = CONFIG.imMode;
+      this.envDraft = CONFIG.rawOrigin || "";
+      this.imDraft = CONFIG.rawImOrigin || "";
+      this.envMode = String(CONFIG.rawOrigin || CONFIG.rawImOrigin || "").includes("im.9ty.lol") ? "online" : "local";
       this.envOpen = true;
     },
     go(path) {
@@ -144,6 +138,7 @@ export default {
         content: "确定要退出当前账号吗？",
         success: (res) => {
           if (!res.confirm) return;
+          disconnect();
           this.user.logout();
           uni.reLaunch({ url: "/pages/login/index" });
         },
@@ -151,19 +146,30 @@ export default {
     },
     saveEnv() {
       try {
-        setOverride({ apiOrigin: this.envDraft, imOrigin: this.imDraft, imMode: this.envMode });
+        if (!this.envDraft && !this.imDraft) clearOverride();
+        else setOverride({ apiOrigin: this.envDraft, imOrigin: this.imDraft });
         this.envOpen = false;
         uni.showToast({ title: "已保存，即将重启", icon: "none" });
-        setTimeout(() => uni.reLaunch({ url: "/pages/mine/index" }), 600);
+        setTimeout(() => uni.switchTab({ url: "/pages/mine/index" }), 600);
       } catch (e) {
         uni.showToast({ title: e.message || "保存失败", icon: "none" });
+      }
+    },
+    pickEnv(mode) {
+      this.envMode = mode;
+      if (mode === "online") {
+        this.envDraft = "https://im.9ty.lol";
+        this.imDraft = "https://im.9ty.lol";
+      } else {
+        this.envDraft = "";
+        this.imDraft = "";
       }
     },
     resetEnv() {
       clearOverride();
       this.envOpen = false;
       uni.showToast({ title: "已恢复默认，即将重启", icon: "none" });
-      setTimeout(() => uni.reLaunch({ url: "/pages/mine/index" }), 600);
+      setTimeout(() => uni.switchTab({ url: "/pages/mine/index" }), 600);
     },
   },
 };

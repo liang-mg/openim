@@ -10,10 +10,12 @@
       placeholder-class="text-ink-4"
       confirm-type="send"
       :disabled="disabled || readOnly"
-      :adjust-position="true"
-      :cursor-spacing="12"
+      :adjust-position="false"
+      :cursor-spacing="0"
       @input="$emit('update:modelValue', $event.detail.value)"
       @confirm="$emit('send')"
+      @focus="$emit('focus')"
+      @blur="$emit('blur')"
     />
     <view
       class="composer__send w-[60px] h-[38px] rounded-ctl bg-brand flex items-center justify-center shrink-0"
@@ -38,11 +40,11 @@ export default {
     modelValue: { type: String, default: "" },
     /** IM 未连接：输入框禁用 */
     disabled: { type: Boolean, default: false },
-    /** 后端通知模式（imMode=api）：只能看，不能发 */
+    /** 只读态（保留能力，当前聊天页不再使用） */
     readOnly: { type: Boolean, default: false },
     hint: { type: String, default: "" },
   },
-  emits: ["update:modelValue", "send"],
+  emits: ["update:modelValue", "send", "focus", "blur"],
   computed: {
     canSend() {
       return !this.disabled && !this.readOnly && Boolean(this.modelValue.trim());

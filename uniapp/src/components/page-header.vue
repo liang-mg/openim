@@ -51,7 +51,7 @@ export default {
       // 默认行为：有上一页就返回，否则回工作台。页面可监听 back 覆盖。
       const pages = getCurrentPages();
       if (pages.length > 1) uni.navigateBack();
-      else uni.reLaunch({ url: "/pages/work/index" });
+      else uni.switchTab({ url: "/pages/work/index" });
     },
   },
 };

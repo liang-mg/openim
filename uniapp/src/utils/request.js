@@ -39,6 +39,7 @@ function networkError(raw, url) {
   const error = new Error(message);
   error.code = code;
   error.rawMessage = raw;
+  error.detail = { url, bodyPreview: raw.slice(0, 180) };
   return error;
 }
 
@@ -107,6 +108,7 @@ export function request(options = {}) {
       success: (res) => {
         const status = res.statusCode;
         const body = res.data;
+        const contentType = String((res.header && (res.header["content-type"] || res.header["Content-Type"])) || "");
 
         if (status === 401) {
           goLogin();
@@ -114,7 +116,17 @@ export function request(options = {}) {
           return;
         }
         if (status < 200 || status >= 300) {
-          reject(new Error(`请求失败（${status}）`));
+          const e = new Error(`请求失败（${status}）`);
+          e.detail = { url, httpStatus: status, contentType, bodyPreview: String(typeof body === "string" ? body : JSON.stringify(body || {})).slice(0, 180) };
+          reject(e);
+          return;
+        }
+        // 静态站点/网关把 API 回落成 HTML 时，提前给出可诊断的错误，避免解析成“登录缺少字段”
+        if (typeof body === "string" && /^\s*</.test(body)) {
+          const e = new Error("接口返回了 HTML 而不是 JSON");
+          e.code = "HTML_RESPONSE";
+          e.detail = { url, httpStatus: status, contentType: contentType || "text/html", bodyPreview: body.slice(0, 180) };
+          reject(e);
           return;
         }
         // 信封格式
@@ -124,7 +136,9 @@ export function request(options = {}) {
             return;
           }
           if (body.code === 401) goLogin();
-          reject(new Error(body.msg || "请求失败"));
+          const e = new Error(body.msg || "请求失败");
+          e.detail = { url, httpStatus: status, contentType, bodyPreview: JSON.stringify(body).slice(0, 180) };
+          reject(e);
           return;
         }
         // 非信封（例如直接返回数组）
@@ -152,9 +166,35 @@ export const put = (path, data, options = {}) =>
 export const del = (path, params, options = {}) =>
   request({ ...options, path, params, method: "DELETE" });
 
+/**
+ * OpenIM 的 chat API 要求每个请求带 operationID（PC 端在 api/login.ts 里用 uuidv4()）。
+ * 不带时 IM 会直接返回 1001 ArgsError: header must have operationID，
+ * 表现为「登录一直失败但账号密码没错」。H5 / App 都要能生成，故做降级实现。
+ */
+function operationID() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+    /* 老 WebView 没有 crypto.randomUUID，走下面的降级 */
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 /** IM（chat）接口：登录/注册等，地址前缀不同 */
 export const chatPost = (path, data, options = {}) =>
-  request({ ...options, path, data, method: "POST", base: CONFIG.chatBase });
+  request({
+    ...options,
+    path,
+    data,
+    method: "POST",
+    base: CONFIG.chatBase,
+    header: { operationID: operationID(), ...(options.header || {}) },
+  });
 
 /**
  * 文件上传（multipart）。uni 的 uploadFile 不接受普通 request 的 body，

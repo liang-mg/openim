@@ -114,6 +114,62 @@
         "navigationBarTitleText": "公告",
         "enablePullDownRefresh": true
       }
+    },
+    {
+      "path": "pages/contact/new-friends/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "新的朋友"
+      }
+    },
+    {
+      "path": "pages/contact/add-friend/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "添加好友"
+      }
+    },
+    {
+      "path": "pages/contact/user-card/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "用户资料"
+      }
+    },
+    {
+      "path": "pages/contact/add-group/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "加入群组"
+      }
+    },
+    {
+      "path": "pages/group/notifications/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "群通知"
+      }
+    },
+    {
+      "path": "pages/group/create/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "创建群聊"
+      }
+    },
+    {
+      "path": "pages/group/settings/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "群设置"
+      }
+    },
+    {
+      "path": "pages/group/invite/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "邀请好友"
+      }
     }
   ],
   "globalStyle": {
@@ -124,5 +180,37 @@
     "backgroundColorTop": "#f4f6f9",
     "backgroundColorBottom": "#f4f6f9",
     "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#8a9099",
+    "selectedColor": "#0b5fd8",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/message/index",
+        "text": "消息",
+        "iconPath": "static/tabbar/nav_bar_message.png",
+        "selectedIconPath": "static/tabbar/nav_bar_message_active.png"
+      },
+      {
+        "pagePath": "pages/contact/index",
+        "text": "通讯录",
+        "iconPath": "static/tabbar/nav_bar_contact.png",
+        "selectedIconPath": "static/tabbar/nav_bar_contact_active.png"
+      },
+      {
+        "pagePath": "pages/work/index",
+        "text": "工作",
+        "iconPath": "static/tabbar/nav_bar_workbench.png",
+        "selectedIconPath": "static/tabbar/nav_bar_workbench_active.png"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我",
+        "iconPath": "static/tabbar/nav_bar_contact.png",
+        "selectedIconPath": "static/tabbar/nav_bar_contact_active.png"
+      }
+    ]
   }
 }

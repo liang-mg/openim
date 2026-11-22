@@ -336,7 +336,7 @@ export default {
     back() {
       const pages = getCurrentPages();
       if (pages.length > 1) uni.navigateBack();
-      else uni.reLaunch({ url: "/pages/work/index" });
+      else uni.switchTab({ url: "/pages/work/index" });
     },
   },
 };

@@ -13,7 +13,7 @@
 ```powershell
 cd uniapp
 npm install
-npm run dev:h5      # http://127.0.0.1:5174
+npm run dev:h5      # http://127.0.0.1:5180（5174 常被其他项目占用）
 ```
 
 需要后端在跑（OA 接口 `127.0.0.1:10010`、MongoDB `27017`）。
@@ -61,7 +61,7 @@ src/
 ├── api/
 │   ├── oa.js          # OA 业务接口，与 frontend/src/api/oaApi.ts 一一对应（同名同参）
 │   ├── auth.js        # 登录 / 登出（复用 IM 的 chatToken）
-│   └── im.js          # IM 适配层：mock 现在可用，接 SDK 时只换这里
+│   └── im/            # IM 适配层（H5=JS SDK / App=UTS 插件，无 mock）
 ├── components/        # 跨页面组件（oim-avatar / app-tabbar / page-shell）
 ├── config/index.js    # 运行时配置（读 env），HOME_PATH 等
 ├── pages/             # 页面，一个页面一个目录
@@ -81,8 +81,8 @@ src/
    （`visibleUserIDs` / 403），前端不信任何 id。
 3. **跳转统一走 `utils/nav.js`**：后端给的是 PC 的 web 路由（`/report`），
    uni 页面是 `/pages/report/index`，直接塞给 `navigateTo` 会静默失败 —— 必须过一层映射。
-3. **IM 走适配层**：页面不直接调 SDK。H5 用 JSSDK、App 用 OpenIM 的 UTS 原生插件，
-   两者 API 不同，全部收在 `api/im.js` 后面。
+3. **IM 走适配层**：页面不直接调 SDK。H5 用 `@openim/client-sdk`、App 用
+   `unix-openim-sdk` UTS 原生插件，两者 API 不同，全部收在 `api/im/` 后面。
 
 ---
 
@@ -93,9 +93,17 @@ src/
 | 登录 | `pages/login/index` | `pages/login/` | ✅ 完成（含本地联调登录） |
 | 工作台 | `pages/work/index` | `pages/work/index.tsx` | ✅ 完成（真实数据） |
 | 我 | `pages/mine/index` | `pages/mine/index.tsx` | ✅ 完成（含管理员入口显隐） |
-| 消息 | `pages/message/index` | `pages/chat/ConversationSider` | ✅ 完成（会话列表 + 搜索 + 未读 + 连接状态；数据走 `api/im.js` mock） |
-| 通讯录 | `pages/contact/index` | `pages/contact/` | ✅ 完成（好友/群聊两档 + 搜索 + 点击进会话；好友申请待 IM 接口） |
-| 聊天 | `pages/chat/index` | `pages/chat/queryChat/` | ✅ 完成（时间分隔、群聊昵称、分页加载更多、发送中/失败重发、已读清除） |
+| 消息 | `pages/message/index` | `pages/chat/ConversationSider` | ✅ 完成（真实 OpenIM 会话列表 + 搜索 + 未读 + 连接状态） |
+| 通讯录 | `pages/contact/index` | `pages/contact/` | ✅ 完成（好友/群聊/新的朋友/群通知/添加好友/资料卡） |
+| 新的朋友 | `pages/contact/new-friends/index` | `pages/contact/newFriends` | ✅ 完成（收到/发出、同意/拒绝、红点） |
+| 添加好友 | `pages/contact/add-friend/index` | `pages/common/UserCardModal` | ✅ 完成（手机号/账号/用户ID 搜索、验证消息） |
+| 用户资料 | `pages/contact/user-card/index` | `UserCardModal` | ✅ 完成（发消息/备注/删除好友） |
+| 群通知 | `pages/group/notifications/index` | `pages/contact/groupNotifications` | ✅ 完成（加群申请同意/拒绝、红点） |
+| 创建群聊 | `pages/group/create/index` | `CreateGroupModal` | ✅ 完成（选好友、群名） |
+| 加入群组 | `pages/contact/add-group/index` | `SearchUserOrGroup` | ✅ 完成（按群ID搜索、申请加入） |
+| 群设置 | `pages/group/settings/index` | `GroupSetting` | ✅ 完成（改名/公告/邀请/踢人/转让/退群/解散） |
+| 邀请好友 | `pages/group/invite/index` | `GroupSetting` | ✅ 完成（排除已在群成员） |
+| 聊天 | `pages/chat/index` | `pages/chat/queryChat/` | ✅ 完成（时间分隔、群聊昵称、分页加载更多、发送中/超时/失败重发、离线 outbox、断线重连、系统消息） |
 | 拍照打卡 | `pages/checkin/index` | `pages/checkin/index.tsx` | ✅ 完成（定位 + 相机 + 水印 + 提交全链路联调） |
 | 出勤记录 | `pages/attendance/index` | `pages/attendance/` | ✅ 完成（我的/团队/报表三档 + 成员月历抽屉 + CSV 导出） |
 | 工作报告 | `pages/report/index` | `pages/report/index.tsx` | ✅ 完成（今天/昨天、草稿/提交/2h 撤回、锁定态；附件前端已通，本机无 MinIO 无法端到端验） |
@@ -120,36 +128,60 @@ PC 端代码直接搬到手机上会「溢出、滑不动、切换卡」。三�
 
 ---
 
-### IM 适配层（`src/api/im/`）
+### IM 适配层（`src/api/im/`）—— 已接真实 OpenIM，无 mock
 
-三个 IM 页面只依赖 `src/api/im/index.js`，**不直接碰 SDK**。原因是移动端有两套实现：
+三个 IM 页面只依赖 `src/api/im/index.js`，**不直接碰 SDK**。两套真实实现：
 
 | 运行环境 | 实现 | 说明 |
 |---|---|---|
-| H5 / 浏览器 | `@openim/client-sdk`（JSSDK，WSS） | 轻量，无本地库 |
-| App / APK | `openim-uniapp-sdk`（UTS 原生插件） | 本地消息库 + 离线推送 |
+| H5 / 浏览器 | `@openim/client-sdk`（JS SDK，WSS） | 与 PC 的 WASM SDK 连同一套 openim-server |
+| App / APK | `unix-openim-sdk`（UTS 原生插件） | 本地消息库 + 原生长连接 + 离线推送基础 |
 
 ```
 src/api/im/
 ├── index.js   连接状态机 + 事件广播 + 统一 Contract（页面 import 这个）
-├── mock.js    内存假数据（VITE_IM_MODE=mock，默认）
-└── uts.js     OpenIM UTS 插件骨架：每个方法都留了 TODO 与要映射的插件 API
+├── common.js  OpenIM 实体 → 页面结构（会话/消息/好友/群）
+├── h5.js      @openim/client-sdk 实现（H5 构建引用）
+└── app.js     @/uni_modules/unix-openim-sdk 实现（App 构建引用）
 ```
 
-切真实 SDK 的步骤：装插件 → `VITE_IM_MODE=sdk` → 填 `uts.js` 里的 TODO。
-**13 个页面一行不用改**。Contract：
+Contract：
 
 ```
 connect() / getState() / on('state')
 listConversations() / getConversation(id)
-getMessages(id, { before, limit }) -> { list, hasMore }
-sendTextMessage(id, text) -> Message
+getMessages(id, { beforeClientMsgID, limit }) -> { list, hasMore }
+sendTextMessage(id, text, { onPending }) -> Message   // onPending 用于先上屏 + 落 outbox
 markConversationRead(id) / totalUnread()
 listFriends() / listGroups()
+getOrCreateConversation({ sourceID, sessionType })   // 通讯录点人/点群用
+getFriendApplications(type) / handleFriendApplication()
+addFriend() / deleteFriend() / updateFriendRemark() / getUsersInfo()
+getGroupApplications(type) / handleGroupApplication()
+getGroupInfo() / getGroupMembers() / createGroup() / joinGroup()
+inviteGroupMembers() / kickGroupMember() / quitGroup() / dismissGroup()
+transferGroupOwner() / setGroupInfo()
+reconnect() / ensureConnection() / on('unread'|'application'|'auth')
 ```
 
-页面上的约束也已经在代码里：连接失败时聊天页禁用输入框、消息列表顶部显示「IM 未连接」，
-不会让人误以为「没有消息」。
+### IM 业务矩阵（本轮已验证）
+
+本地 OpenIM + 本地 OA，两个账号（102/103）双端 H5 实测：
+好友搜索/申请/同意/拒绝、资料卡备注/删除、会话未读角标全局保留与清零、
+单聊/群聊发送接收、分页加载更多、离线发送失败 outbox、重进恢复、重连后重发、
+群创建/邀请/申请/同意/拒绝/改名/公告/踢人/转让/退出/解散、系统群通知、
+聊天页标题进用户资料/群设置、连接中/未连接提示、H5 键盘 visualViewport 适配。
+
+生产环境（`https://im.9ty.lol`）实测：登录、通讯录、搜索加好友、好友申请通过、
+单聊发送、创建群、群设置页面均正常。所有接口仍走同源/代理，不新增后端改动。
+
+H5 用 JS SDK 时有一个打包兼容：`@openim/client-sdk` 3.8.3 深层 import
+`@openim/protocol/lib/pb/sdkws/sdkws` 没有对应 .js，已在 `vite.config.js` 里
+用 `src/shims/openim-protocol-sdkws.js` 做别名转发。
+
+页面上的约束：连接失败时聊天页显示「IM 未连接，点击重连」，消息列表顶部有连接横幅；
+H5 在离线/半死 WS 后重连会整页刷新（保留当前路由、token、outbox），App 用原生 SDK
+logout/login 重建长连接。
 
 ---
 
@@ -190,8 +222,8 @@ CLI 只能跑 H5；要在真机上看效果，用 HBuilderX 的「运行到手�
 window.__OA_CONFIG__ = {
   env: "prod",
   apiOrigin: "",        // 空=同源（nginx 反代）；填 https://域名=跨域直连
-  wsOrigin: "",         // 空时由 apiOrigin 推导
-  imMode: "mock",       // mock | sdk
+  imOrigin: "",         // IM 可单独域名；空时跟随 apiOrigin
+  wsOrigin: "",         // 空时由 imOrigin 推导
   devToken: "",         // 生产必须留空
 };
 ```
@@ -230,7 +262,7 @@ window.__OA_CONFIG__ = {
 
 ## 新业务模块骨架
 
-`src/modules/_template/`（definition / api / mock / pages）——复制即用，
+`src/modules/_template/`（definition / api / pages）——复制即用，
 规则写在 `definition.js`，页面只做装配。见该目录 `README.md`。
 
 ---
@@ -276,8 +308,10 @@ VITE_APP_ORIGIN=https://im.example.com
 | `VITE_APP_ORIGIN=`（空，默认） | 相对路径 `/oa/api/v1` | 同源静态托管 + 反代，工作台/出勤数据正常 |
 | `VITE_APP_ORIGIN=http://127.0.0.1:5180` | 绝对地址 | 同一套页面从绝对地址取数，**0 JS 错误** |
 
-「杀进程也能收到消息」需要 OpenIM UTS 原生插件 + 厂商推送通道，
-接入点已经收在 `src/api/im/uts.js`，切 `VITE_IM_MODE=sdk` 即可。
+App 端 IM 由官方 `unix-openim-sdk` UTS 插件提供（已放在
+`src/uni_modules/unix-openim-sdk`），必须用自定义基座或正式包验证；标准基座只能看页面。
+生产构建在 `.env.production` 设置 `VITE_APP_ORIGIN=https://im.9ty.lol`；
+HBuilderX 云打包还要求 APPID 归属当前登录账号（或把账号加为项目成员）。
 
 完整步骤、两条打包路线对比、验收清单见
 [`docs/移动端-打包与推送预案.md`](../docs/移动端-打包与推送预案.md)。

@@ -55,7 +55,7 @@ const contents = files.map((f) => ({
 const TEMPLATE_PREFIX = "modules/_template/";
 
 // 收集所有形如 /pages/xxx/index 的引用
-const refRe = /\/pages\/[A-Za-z0-9_-]+\/index/g;
+const refRe = /\/pages\/(?:[A-Za-z0-9_-]+\/)+index(?![A-Za-z0-9_/-])/g;
 const referenced = new Map(); // page -> Set(rel)
 for (const { rel, text } of contents) {
   for (const m of text.matchAll(refRe)) {
@@ -69,7 +69,8 @@ for (const { rel, text } of contents) {
 for (const page of pages) {
   if (SEED.has(page)) continue;
   const refs = referenced.get(page) || new Set();
-  const fromOthers = [...refs].filter((r) => !r.startsWith(`pages/${page.split("/").slice(0, 2).join("/")}/`));
+  const selfFile = `pages/${page}.vue`;
+  const fromOthers = [...refs].filter((r) => r !== selfFile);
   if (fromOthers.length === 0) {
     errors.push(`页面没有入口，用户点不到：${page}（没有任何其它文件跳转到它）`);
   }

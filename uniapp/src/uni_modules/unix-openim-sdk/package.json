@@ -1,0 +1,108 @@
+{
+  "id": "unix-openim-sdk",
+  "displayName": "Unix OpenIM SDK",
+  "version": "0.2.3",
+  "description": "OpenIM UTS 原生插件，为 uni-app 和 uni-app x 的 Android、iOS App 提供即时通讯能力。",
+  "keywords": [
+    "即时通讯",
+    "IM",
+    "OpenIM",
+    "uni-app",
+    "uni-app x"
+  ],
+  "license": "AGPL-3.0-only",
+  "files": [
+    "license.md",
+    "readme.md",
+    "changelog.md",
+    "utssdk"
+  ],
+  "engines": {
+    "HBuilderX": ">=5.23.2026080313-alpha",
+    "uni-app": "^5.23",
+    "uni-app-x": "^5.23"
+  },
+  "uni_modules": {
+    "platforms": {
+      "cloud": {
+        "tcb": "x",
+        "aliyun": "x",
+        "alipay": "x"
+      },
+      "client": {
+        "uni-app": {
+          "vue": {
+            "vue2": "√",
+            "vue3": "√"
+          },
+          "app": {
+            "vue": "√",
+            "nvue": "√",
+            "android": {
+              "extVersion": "0.2.2",
+              "minVersion": "5.0"
+            },
+            "harmony": "x",
+            "ios": {
+              "extVersion": "0.2.2",
+              "minVersion": "14"
+            }
+          },
+          "mp": {
+            "weixin": "x",
+            "alipay": "x"
+          },
+          "web": {
+            "chrome": "x",
+            "safari": "x"
+          }
+        },
+        "uni-app-x": {
+          "app": {
+            "android": {
+              "extVersion": "0.1.0",
+              "minVersion": "5.0"
+            },
+            "harmony": "x",
+            "ios": {
+              "extVersion": "0.1.0",
+              "minVersion": "14"
+            }
+          },
+          "mp": {
+            "weixin": "x",
+            "alipay": "x"
+          },
+          "web": {
+            "chrome": "x",
+            "safari": "x"
+          }
+        }
+      }
+    }
+  },
+  "dcloudext": {
+    "type": "uts",
+    "sale": {
+      "regular": {
+        "price": "0.00"
+      },
+      "sourcecode": {
+        "price": "0.00"
+      }
+    },
+    "contact": {
+      "qq": ""
+    },
+    "declaration": {
+      "ads": "无",
+      "data": "插件不采集任何数据",
+      "permissions": "无"
+    },
+    "npmurl": "",
+    "darkmode": "x",
+    "i18n": "x",
+    "widescreen": "x"
+  },
+  "repository": "https://github.com/openimsdk/openim-sdk-unix"
+}

@@ -6,7 +6,9 @@
  */
 import { defineStore } from "pinia";
 import { getMe } from "@/api/oa";
+import { disconnect } from "@/api/im";
 import { getProfileCache, setProfileCache, clearAuth } from "@/utils/storage";
+import { useIMStore } from "./im";
 
 const EMPTY = {
   user_id: "",
@@ -60,7 +62,13 @@ export const useUserStore = defineStore("user", {
     },
 
     logout() {
+      disconnect();
       clearAuth();
+      try {
+        useIMStore().reset();
+      } catch (e) {
+        /* ignore */
+      }
       this.profile = { ...EMPTY };
       this.loaded = false;
     },

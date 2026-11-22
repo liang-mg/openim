@@ -5,7 +5,9 @@
       <view class="msg__right">
         <text v-if="!connected" class="msg__state">IM 未连接</text>
         <view v-if="totalUnread" class="msg__unread"><text class="msg__unread-text">{{ totalUnread > 99 ? "99+" : totalUnread }}</text></view>
-        <!-- 通知中心入口（系统通知与 IM 会话分开，避免混在一起） -->
+        <view class="msg__add" @tap="showAddMenu">
+          <app-icon name="plus" :size="20" color="#ffffff" />
+        </view>
         <view class="msg__bell" @tap="goNotifications">
           <app-icon name="bell" :size="20" color="#ffffff" />
         </view>
@@ -16,14 +18,18 @@
       <input v-model="keyword" class="msg__search-input" placeholder="搜索会话" placeholder-class="msg__ph" confirm-type="search" />
     </view>
 
+    <view v-if="error" class="msg__error" @tap="bootstrap">
+      <text class="msg__error-text">{{ error }}，点击重试</text>
+    </view>
+
     <view class="msg__list">
-      <view v-if="!filtered.length" class="empty"><text>{{ keyword ? "没有匹配的会话" : "暂无会话" }}</text></view>
+      <view v-if="loading && !list.length && !error" class="px-3 pt-3">
+        <view class="oa-card"><skeleton :lines="5" :height="16" /></view>
+      </view>
+      <view v-else-if="!filtered.length" class="empty"><text>{{ keyword ? "没有匹配的会话" : "暂无会话" }}</text></view>
 
       <conv-row v-for="conv in filtered" :key="conv.conversationID" :conv="conv" @open="openChat" />
 
-      <view v-if="isMock" class="msg__tip">
-        <text class="msg__tip-text">当前为本地假数据（VITE_IM_MODE=mock）。接入 OpenIM 后同一套页面直接可用。</text>
-      </view>
       <view class="page-bottom-space" />
     </view>
 
@@ -32,95 +38,212 @@
 </template>
 
 <script>
+import { hideNativeTabBar, preloadTabPages } from "@/utils/tabbar";
 import OimAvatar from "@/components/oim-avatar.vue";
 import AppIcon from "@/components/app-icon.vue";
 import AppTabbar from "@/components/app-tabbar.vue";
 import ConvRow from "./components/conv-row.vue";
-import { listConversations, totalUnread, connect, getState, isMock, on } from "@/api/im";
+import Skeleton from "@/components/skeleton.vue";
+import { listConversations, totalUnread, connect, getState, on } from "@/api/im";
 import { getToken } from "@/utils/storage";
 import { peek, put } from "@/utils/swr";
 import { useUserStore } from "@/store/user";
+import { useIMStore } from "@/store/im";
 
 /**
- * 会话列表。对应 PC 端 frontend/src/pages/chat/ConversationSider：
- * 头像（群聊带标记）、名称、最后一条消息（群聊带发送者）、时间、未读角标。
- * 顶部多了连接状态：IM 没连上时明确提示，不让用户以为「没消息」。
+ * 会话列表。对应 PC 端 frontend/src/pages/chat/ConversationSider。
+ * 除了首屏加载，还会监听 IM 的新消息/会话变化/未读数，正在看列表时不需要手动刷新。
  */
 export default {
-  components: { OimAvatar, AppIcon, AppTabbar, ConvRow },
+  components: { OimAvatar, AppIcon, AppTabbar, ConvRow, Skeleton },
   data() {
     return {
       list: [],
-      totalUnread: 0,
+      totalUnread: useIMStore().unread,
       keyword: "",
       connected: false,
-      isMock: isMock(),
+      connState: "idle",
+      error: "",
+      loading: true,
+      busy: false,
+      reloadTimer: null,
+      emptyRetryTimer: null,
+      emptyRetryCount: 0,
+      offSync: null,
       offState: null,
+      offMsg: null,
+      offConv: null,
+      offUnread: null,
+      offApp: null,
     };
   },
   computed: {
     filtered() {
       const k = this.keyword.trim();
       if (!k) return this.list;
-      return this.list.filter((c) => String(c.showName || "").includes(k) || String(c.lastMessage.text || "").includes(k));
+      return this.list.filter((c) => String(c.showName || "").includes(k) || String((c.lastMessage && c.lastMessage.text) || "").includes(k));
     },
   },
   onShow() {
+    hideNativeTabBar();
     if (!getToken()) {
       uni.reLaunch({ url: "/pages/login/index" });
       return;
     }
-    this.offState = on("state", (s) => {
-      this.connected = s === "connected";
-    });
-    // 头像首字要用真实姓名，顺手把身份拉回来（失败不阻塞）
+    this.bindListeners();
+    this.connState = getState();
+    this.connected = this.connState === "connected";
     useUserStore()
       .fetchProfile()
       .catch(() => {});
     this.bootstrap();
+    // 登录后预热其余 tab，首次切换不再现场加载页面
+    setTimeout(() => preloadTabPages(), 1200);
   },
   onUnload() {
     if (this.offState) this.offState();
+    if (this.offMsg) this.offMsg();
+    if (this.offConv) this.offConv();
+    if (this.offUnread) this.offUnread();
+    if (this.offApp) this.offApp();
+    if (this.offSync) this.offSync();
+    if (this.reloadTimer) clearTimeout(this.reloadTimer);
+    if (this.emptyRetryTimer) clearTimeout(this.emptyRetryTimer);
   },
   methods: {
+    bindListeners() {
+      if (!this.offState) {
+        this.offState = on("state", (s) => {
+          this.connState = s;
+          this.connected = s === "connected";
+          if (s === "connected") this.load();
+        });
+      }
+      if (!this.offMsg) {
+        this.offMsg = on("message", (payload) => this.onMessage(payload));
+      }
+      if (!this.offConv) {
+        this.offConv = on("conversation", (conv) => this.onConversation(conv));
+      }
+      if (!this.offUnread) {
+        this.offUnread = on("unread", (n) => {
+          this.totalUnread = Number(n || 0);
+          useIMStore().setUnread(this.totalUnread);
+        });
+      }
+      if (!this.offApp) {
+        this.offApp = on("application", () => {
+          // 好友/群申请不直接改会话，但联系人页刷新时用得到；这里只做轻量提示
+        });
+      }
+      if (!this.offSync) {
+        // App 端首次同步可能超过连接超时；同步完成后必须主动补拉一次，
+        // 否则首屏会一直空列表，只能切 tab 才刷新。
+        this.offSync = on("sync", () => this.load());
+      }
+    },
     goNotifications() {
       uni.navigateTo({ url: "/pages/notifications/index" });
     },
+    showAddMenu() {
+      uni.showActionSheet({
+        itemList: ["添加好友", "创建群聊", "加入群组"],
+        success: (res) => {
+          if (res.tapIndex === 0) uni.navigateTo({ url: "/pages/contact/add-friend/index" });
+          else if (res.tapIndex === 1) uni.navigateTo({ url: "/pages/group/create/index" });
+          else uni.navigateTo({ url: "/pages/contact/add-group/index" });
+        },
+      });
+    },
     async bootstrap() {
-      // 先铺缓存（切回消息 tab 时几乎零等待），再连 IM 并刷新
+      this.error = "";
       const cached = peek("im:conversations");
       if (cached) {
         this.list = cached.list || [];
         this.totalUnread = cached.unread || 0;
+        useIMStore().setUnread(this.totalUnread);
       }
-      const connecting = connect().catch((e) => {
+      try {
+        await connect();
+      } catch (e) {
         this.connected = false;
-        uni.showToast({ title: e.message, icon: "none", duration: 2600 });
-      });
-      if (isMock()) {
-        // mock 数据不依赖连接：先出列表，别让 400ms 的握手挡住首屏
-        await this.load();
-        await connecting;
-      } else {
-        // 真实 SDK：会话必须先连上才拿得到，只能等
-        await connecting;
-        await this.load();
+        this.connState = getState();
+        this.error = e.message || "IM 连接失败";
       }
       this.connected = getState() === "connected";
+      // 不再“只有 connected 才 load”：listConversations 自己会等连接；
+      // 同步慢时也要把请求发出去，sync 事件到了会再补一次。
+      await this.load();
+      this.scheduleEmptyRetry();
     },
     async load() {
+      if (this.busy) return;
+      this.busy = true;
+      this.loading = true;
       try {
         const [list, unread] = await Promise.all([listConversations(), totalUnread()]);
-        this.list = list;
-        this.totalUnread = unread;
-        put("im:conversations", { list, unread });
+        this.list = Array.isArray(list) ? list : [];
+        this.totalUnread = Number(unread || 0);
+        useIMStore().setUnread(this.totalUnread);
+        this.error = "";
+        this.connected = getState() === "connected";
+        put("im:conversations", { list: this.list, unread: this.totalUnread });
+        if (this.list.length) {
+          this.emptyRetryCount = 0;
+          if (this.emptyRetryTimer) clearTimeout(this.emptyRetryTimer);
+          this.emptyRetryTimer = null;
+        }
       } catch (e) {
         if (!peek("im:conversations")) {
           this.list = [];
           this.totalUnread = 0;
         }
-        uni.showToast({ title: e.message || "会话加载失败", icon: "none" });
+        this.error = e.message || "会话加载失败";
+      } finally {
+        this.loading = false;
+        this.busy = false;
       }
+    },
+    scheduleEmptyRetry() {
+      if (this.list.length || this.emptyRetryCount >= 5 || this.emptyRetryTimer) return;
+      this.emptyRetryCount += 1;
+      this.emptyRetryTimer = setTimeout(async () => {
+        this.emptyRetryTimer = null;
+        if (this.list.length || !getToken()) return;
+        await this.load();
+        if (!this.busy) this.scheduleEmptyRetry();
+      }, 1200);
+    },
+    scheduleReload() {
+      if (this.reloadTimer) clearTimeout(this.reloadTimer);
+      this.reloadTimer = setTimeout(() => {
+        this.reloadTimer = null;
+        this.load();
+      }, 350);
+    },
+    onMessage(payload) {
+      const m = payload && payload.message;
+      const cid = payload && payload.conversationID;
+      if (!m || !cid) return;
+      const idx = this.list.findIndex((c) => c.conversationID === cid);
+      if (idx < 0) {
+        // 新会话不在当前列表里：拉一次完整列表，避免猜字段
+        this.scheduleReload();
+        return;
+      }
+      const conv = { ...this.list[idx] };
+      conv.lastMessage = m;
+      conv.lastTime = m.sendTime || Date.now();
+      if (!m.isSelf) conv.unreadCount = Number(conv.unreadCount || 0) + 1;
+      this.list.splice(idx, 1);
+      this.list.unshift(conv);
+    },
+    onConversation(next) {
+      if (!next || !next.conversationID) return;
+      const idx = this.list.findIndex((c) => c.conversationID === next.conversationID);
+      if (idx >= 0) this.list.splice(idx, 1, { ...this.list[idx], ...next });
+      else this.list.unshift(next);
+      this.list.sort((a, b) => (b.lastTime || 0) - (a.lastTime || 0));
     },
     async openChat(conv) {
       await uni.navigateTo({
@@ -136,6 +259,14 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.msg__add {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .msg__bell {
@@ -189,35 +320,18 @@ export default {
   color: var(--ink-4);
 }
 
+.msg__error {
+  padding: 6px 12px;
+  background: #fff1f0;
+  border-bottom: 1px solid #ffccc7;
+}
+
+.msg__error-text {
+  font-size: 11px;
+  color: #a8071a;
+}
+
 .msg__list {
   background: #fff;
-}
-
-
-.conv:active {
-  background: var(--fill);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-.msg__tip {
-  padding: 16px 16px 4px;
-}
-
-.msg__tip-text {
-  font-size: 10px;
-  color: var(--ink-4);
-  text-align: center;
-  display: block;
-  line-height: 1.6;
 }
 </style>
