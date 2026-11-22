@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page msg">
+  <view class="app-page msg" :class="{ 'page-enter': pageEnter }">
     <view class="app-topbar">
       <text class="app-topbar__title">消息</text>
       <view class="msg__right">
@@ -54,7 +54,10 @@ import { useIMStore } from "@/store/im";
  * 会话列表。对应 PC 端 frontend/src/pages/chat/ConversationSider。
  * 除了首屏加载，还会监听 IM 的新消息/会话变化/未读数，正在看列表时不需要手动刷新。
  */
+import pageEnterMixin from "@/mixins/page-enter";
+
 export default {
+  mixins: [pageEnterMixin],
   components: { OimAvatar, AppIcon, AppTabbar, ConvRow, Skeleton },
   data() {
     return {

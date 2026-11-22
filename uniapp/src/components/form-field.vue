@@ -59,7 +59,7 @@ export default {
   padding: 1px 5px;
   border-radius: 3px;
   color: var(--ink-3);
-  background: #f2f4f7;
+  background: var(--fill-2);
 }
 
 .ff__badge--required {

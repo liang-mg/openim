@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page work">
+  <view class="app-page work" :class="{ 'page-enter': pageEnter }">
     <!-- 顶部蓝栏：标题 + 日期 + 头像（对齐 PC 端 work-topbar） -->
     <view class="work__topbar app-topbar">
       <text class="work__title text-lg font-semibold">工作台</text>
@@ -61,7 +61,10 @@ const EMPTY_REPORT = { submitted: false, status: "", period: "" };
  * apps-grid（九宫格与未开放功能提示）。本页只保留：缓存优先渲染 + 后台刷新、
  * 待办 path → uni 页面的跳转映射、tabbar。
  */
+import pageEnterMixin from "@/mixins/page-enter";
+
 export default {
+  mixins: [pageEnterMixin],
   components: { OimAvatar, AppTabbar, CheckinCard, TodoCard, AppsGrid },
   data() {
     return {

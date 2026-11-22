@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page ct">
+  <view class="app-page ct" :class="{ 'page-enter': pageEnter }">
     <view class="app-topbar">
       <text class="app-topbar__title">通讯录</text>
       <view class="ct__actions">
@@ -74,7 +74,10 @@ import { useIMStore } from "@/store/im";
  *   好友 / 群聊 两个列表（PC 还有「新的朋友」「群通知」，需要 IM 好友申请接口，先在待办里）。
  * 点人/点群先 getOneConversation 拿真实会话 ID（si_/sg_），再进聊天页。
  */
+import pageEnterMixin from "@/mixins/page-enter";
+
 export default {
+  mixins: [pageEnterMixin],
   components: { AppIcon, OimAvatar, AppTabbar, PersonRow },
   data() {
     return {

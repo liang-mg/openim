@@ -81,6 +81,7 @@ page,
   --danger: #e34d59;
   --danger-soft: #fdecee;
   --danger-strong: #a8071a;
+  --danger-muted: #8c4a4a;
   --danger-soft-2: #fff1f0;
   --danger-line: #ffccc7;
   --warn: #f5a623;
@@ -166,6 +167,10 @@ scroll-view {
   margin: 0 auto;
   background: var(--bg);
   animation: oa-page-in 0.18s ease-out both;
+}
+
+.page-enter {
+  animation: oa-page-in 0.16s ease-out both;
 }
 
 @keyframes oa-page-in {

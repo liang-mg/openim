@@ -264,7 +264,7 @@ export default {
   margin-top: 4px;
   font-size: 10px;
   line-height: 1.5;
-  color: #8c4a4a;
+  color: var(--danger-muted);
   word-break: break-all;
 }
 </style>

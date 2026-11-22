@@ -1,5 +1,5 @@
 <template>
-  <view class="app-page mine">
+  <view class="app-page mine" :class="{ 'page-enter': pageEnter }">
     <page-header title="我" tone="plain" :back="false" />
 
     <view class="mine__inner">
@@ -87,7 +87,10 @@ import { getOverride, setOverride, clearOverride } from "@/utils/runtimeConfig";
  * 长按底部版本号可切换运行环境（写本地存储，重启生效）——给多环境切换用，
  * 只影响接口地址，不影响权限（权限永远在服务端判）。
  */
+import pageEnterMixin from "@/mixins/page-enter";
+
 export default {
+  mixins: [pageEnterMixin],
   components: { PageHeader, AppIcon, StatusTag, BottomSheet, FormField, OimAvatar, AppTabbar, MineRow },
   data() {
     return {
