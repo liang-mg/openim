@@ -6,10 +6,10 @@
         <text v-if="!connected" class="msg__state">IM 未连接</text>
         <view v-if="totalUnread" class="msg__unread"><text class="msg__unread-text">{{ totalUnread > 99 ? "99+" : totalUnread }}</text></view>
         <view class="msg__add" @tap="showAddMenu">
-          <app-icon name="plus" :size="24" tone="card" />
+          <app-icon name="plus" :size="26" tone="card" />
         </view>
         <view class="msg__bell" @tap="goNotifications">
-          <app-icon name="bell" :size="24" tone="card" />
+          <app-icon name="bell" :size="26" tone="card" />
         </view>
       </view>
     </view>
@@ -273,16 +273,16 @@ export default {
 }
 
 .msg__add {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .msg__bell {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;

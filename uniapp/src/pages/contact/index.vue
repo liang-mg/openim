@@ -5,7 +5,7 @@
       <view class="ct__actions">
         <text class="ct__count">{{ loading && !friends.length && !groups.length ? "加载中" : tab === "friends" ? `${filteredFriends.length} 位好友` : `${filteredGroups.length} 个群` }}</text>
         <view class="ct__plus" @tap="showAddMenu">
-          <app-icon name="plus" :size="24" tone="card" />
+          <app-icon name="plus" :size="26" tone="card" />
         </view>
       </view>
     </view>
@@ -262,8 +262,8 @@ export default {
 }
 
 .ct__plus {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;

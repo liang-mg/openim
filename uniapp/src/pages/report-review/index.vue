@@ -137,8 +137,9 @@ export default {
         this.me = await getMe();
         if (!this.canView) return;
         const all = await this.reload();
-        const hasPending = all.some((r) => r.status === "pending_leader");
-        this.tab = hasPending || this.isManager ? "pending" : "archived";
+        // 后端 status 可能是 submitted/pending_leader，不只有 pending_leader；
+        // 只要还有未归档报告就默认待查阅，不能把领导直接放到空归档页。
+        this.tab = all.some((r) => r.status !== "archived") ? "pending" : "archived";
       } catch (e) {
         uni.showToast({ title: e.message || "加载失败，请稍后重试", icon: "none" });
       } finally {
@@ -176,7 +177,9 @@ export default {
         const report = this.selected;
         const actions = report.review_actions || {};
         // 与 PC 同一套：view 按阶段判定，complete 表示「本次点评同时完成上报/归档」
-        const view = report.status === "pending_leader" ? "leader" : "manager";
+        // 用当前角色决定点评阶段，而不是猜 status 字符串；
+        // 领导/HR/admin 归档走 leader，组长上报走 manager。
+        const view = this.isLeader && !this.isManager ? "leader" : "manager";
         const complete = Boolean(actions.can_escalate || actions.can_archive);
         await submitReview(report.report_id, value, view, complete);
         uni.showToast({

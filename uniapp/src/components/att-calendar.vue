@@ -121,6 +121,7 @@ export default {
   gap: 1px;
   border-radius: 8px;
   background: transparent;
+  outline: none;
 }
 
 .cal__cell--blank {
