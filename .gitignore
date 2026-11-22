@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 !config-template/*.example
+# uniapp 的环境模板不含密钥，明确允许入库
+!uniapp/.env.development
+!uniapp/.env.production
 *.local
 *.local.*
 .env.local
