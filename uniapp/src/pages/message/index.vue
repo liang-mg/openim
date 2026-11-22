@@ -26,7 +26,10 @@
       <view v-if="loading && !list.length && !error" class="px-3 pt-3">
         <view class="oa-card"><skeleton :lines="5" :height="16" /></view>
       </view>
-      <view v-else-if="!filtered.length" class="empty"><text>{{ keyword ? "没有匹配的会话" : "暂无会话" }}</text></view>
+      <view v-else-if="!filtered.length" class="empty">
+        <text>{{ keyword ? "没有匹配的会话" : "暂无会话" }}</text>
+        <text v-if="!keyword" class="empty__refresh" @tap="bootstrap">点击刷新</text>
+      </view>
 
       <conv-row v-for="conv in filtered" :key="conv.conversationID" :conv="conv" @open="openChat" />
 
@@ -347,5 +350,12 @@ export default {
 
 .msg__list {
   background: var(--card);
+}
+
+.empty__refresh {
+  display: block;
+  margin-top: 10px;
+  font-size: var(--text-sm);
+  color: var(--brand);
 }
 </style>
