@@ -105,6 +105,7 @@ export default {
       baseInnerHeight: 0,
       inputFocused: false,
       keyboardTimer: null,
+      keyboardRecheck: null,
       offKeyboard: null,
       offViewport: null,
     };
@@ -166,6 +167,7 @@ export default {
     if (this.offSync) this.offSync();
     if (this.readTimer) clearTimeout(this.readTimer);
     if (this.keyboardTimer) clearTimeout(this.keyboardTimer);
+    if (this.keyboardRecheck) clearTimeout(this.keyboardRecheck);
     // #ifdef APP-PLUS
     try {
       if (this.offKeyboard && typeof uni.offKeyboardHeightChange === "function") uni.offKeyboardHeightChange(this.offKeyboard);
@@ -218,6 +220,20 @@ export default {
       // #endif
       if (next === this.keyboardHeight) return;
       this.keyboardHeight = next;
+      // App 端键盘事件可能先于 WebView resize 到达：第一次按高度加了 padding，
+      // 等 300ms 再确认一次；如果系统已经把视口压缩，就把 padding 撤掉，避免双重上推。
+      // #ifdef APP-PLUS
+      if (this.keyboardRecheck) clearTimeout(this.keyboardRecheck);
+      this.keyboardRecheck = null;
+      if (next > 0 && source === "app") {
+        this.keyboardRecheck = setTimeout(() => {
+          this.keyboardRecheck = null;
+          if (this.keyboardHeight <= 0 || !this.baseInnerHeight) return;
+          const shrunk = this.baseInnerHeight - Number(window.innerHeight || 0);
+          if (shrunk > Math.max(80, this.keyboardHeight * 0.45)) this.keyboardHeight = 0;
+        }, 300);
+      }
+      // #endif
       if (next > 0) {
         this.$nextTick(() => this.scrollToBottom(true));
       }

@@ -135,9 +135,16 @@ export function targetOfConversation(conversationID, selfID) {
 }
 
 /** 取消息数组：H5 事件是数组，App 插件事件是 { messageList } */
+function eventData(payload) {
+  const data = unwrap(payload);
+  // 某些原生桥接/旧插件会把事件 payload 序列化成 JSON 字符串，先解一次
+  if (typeof data === "string") return parseJSON(data) || data;
+  return data;
+}
+
 export function messagesOfEvent(payload) {
   if (!payload) return [];
-  const data = unwrap(payload);
+  const data = eventData(payload);
   if (Array.isArray(data)) return data;
   if (Array.isArray(data && data.messageList)) return data.messageList;
   // App 端插件事件是 { messages: [...] }（Common/native-call-common.uts 的 OpenIMMessageListResult）
@@ -148,7 +155,7 @@ export function messagesOfEvent(payload) {
 
 export function conversationsOfEvent(payload) {
   if (!payload) return [];
-  const data = unwrap(payload);
+  const data = eventData(payload);
   if (Array.isArray(data)) return data;
   if (Array.isArray(data && data.conversations)) return data.conversations;
   return [];
