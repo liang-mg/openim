@@ -110,7 +110,7 @@ export default {
   align-items: center;
   height: 56px;
   padding-bottom: env(safe-area-inset-bottom);
-  background: #fff;
+  background: var(--card);
   border-top: 1px solid var(--line);
   z-index: 20;
 }
@@ -169,7 +169,7 @@ export default {
 }
 
 .tabbar__badge-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 9px;
   line-height: 1;
 }

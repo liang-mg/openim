@@ -137,7 +137,7 @@ export default {
   gap: 4px;
   padding: 4px 8px;
   border-radius: 14px;
-  background: #fff;
+  background: var(--card);
 }
 
 .nf-add-text {
@@ -212,7 +212,7 @@ export default {
 
 .nf-btn--ok {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .nf-btn--no {

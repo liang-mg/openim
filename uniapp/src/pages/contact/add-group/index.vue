@@ -152,7 +152,7 @@ export default {
 }
 
 .ag-search-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 13px;
 }
 
@@ -220,7 +220,7 @@ export default {
 }
 
 .ag-primary-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 14px;
   font-weight: 500;
 }

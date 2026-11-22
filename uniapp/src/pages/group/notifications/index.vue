@@ -135,7 +135,7 @@ export default {
   gap: 4px;
   padding: 4px 8px;
   border-radius: 14px;
-  background: #fff;
+  background: var(--card);
 }
 
 .gn-add-text {
@@ -226,7 +226,7 @@ export default {
 
 .gn-btn--ok {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .gn-btn--no {

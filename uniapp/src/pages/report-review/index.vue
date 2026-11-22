@@ -2,7 +2,7 @@
   <view class="app-page rv">
     <page-header :title="detailOpen ? (selected ? selected.author.name : '报告查阅') : '报告查阅'" @back="onBack">
       <template #right>
-        <status-tag :text="viewLabel" tone="brand" background="rgba(255,255,255,0.2)" color="#ffffff" />
+        <status-tag :text="viewLabel" tone="brand" background="rgba(255,255,255,0.2)" color="var(--on-primary)" />
       </template>
     </page-header>
 

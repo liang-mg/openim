@@ -270,7 +270,7 @@ export default {
 
 .uc-btn--primary {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .uc-actions {
@@ -290,7 +290,7 @@ export default {
 }
 
 .uc-primary-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 15px;
   font-weight: 500;
 }
@@ -298,8 +298,8 @@ export default {
 .uc-danger {
   height: 44px;
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid #ffccc7;
+  background: var(--card);
+  border: 1px solid var(--danger-line);
   display: flex;
   align-items: center;
   justify-content: center;

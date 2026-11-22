@@ -183,7 +183,7 @@ export default {
 }
 
 .login__card {
-  background: #fff;
+  background: var(--card);
   border-radius: 16px;
   padding: 20px 18px 22px;
   box-shadow: 0 10px 30px rgba(15, 35, 70, 0.08);
@@ -219,35 +219,35 @@ export default {
 }
 
 .login__env--custom {
-  color: #ad6800;
+  color: var(--warn-strong-2);
 }
 
 .login__reset {
   margin: 10px auto 0;
   padding: 5px 10px;
   border-radius: 12px;
-  background: #fff7e6;
-  border: 1px solid #ffe0b2;
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
 }
 
 .login__reset-text {
   font-size: 10px;
-  color: #ad6800;
+  color: var(--warn-strong-2);
 }
 
 .login__error {
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #fff1f0;
-  border: 1px solid #ffccc7;
+  background: var(--danger-soft-2);
+  border: 1px solid var(--danger-line);
 }
 
 .login__error-title {
   display: block;
   font-size: 12px;
   font-weight: 600;
-  color: #a8071a;
+  color: var(--danger-strong);
   margin-bottom: 4px;
 }
 
@@ -255,7 +255,7 @@ export default {
   display: block;
   font-size: 11px;
   line-height: 1.55;
-  color: #a8071a;
+  color: var(--danger-strong);
   word-break: break-all;
 }
 

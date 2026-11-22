@@ -2,7 +2,7 @@
   <view class="flex items-center justify-between mb-2.5">
     <text class="flex-1 min-w-0 block text-xs text-ink-3">设置角色与直属上级，决定谁能看到谁的日报</text>
     <view class="flex items-center gap-1 px-3 py-1.5 rounded-ctl bg-brand" @tap="$emit('add')">
-      <app-icon name="plus" :size="14" color="#ffffff" />
+      <app-icon name="plus" :size="14" tone="card" />
       <text class="text-sm text-white">添加</text>
     </view>
   </view>

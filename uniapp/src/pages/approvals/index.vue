@@ -35,7 +35,7 @@
         </picker>
         <text class="text-sm text-ink-2 px-1" @tap="loadRate">刷新</text>
         <view class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-ctl bg-brand" @tap="doUrge">
-          <app-icon name="send" :size="13" color="#ffffff" />
+          <app-icon name="send" :size="13" tone="card" />
           <text class="text-sm text-white">{{ busy ? "处理中…" : "催交未提交" }}</text>
         </view>
       </view>

@@ -200,7 +200,7 @@ export default {
 }
 
 .af-search-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 13px;
 }
 
@@ -289,7 +289,7 @@ export default {
 }
 
 .af-primary-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 14px;
   font-weight: 500;
 }

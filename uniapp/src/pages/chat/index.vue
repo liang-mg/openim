@@ -603,23 +603,23 @@ export default {
 
 .chat__banner {
   padding: 6px 12px;
-  background: #fff7e6;
+  background: var(--warn-soft);
   border-bottom: 1px solid #ffe0b2;
 }
 
 .chat__banner-text {
   font-size: 11px;
-  color: #ad6800;
+  color: var(--warn-strong-2);
 }
 
 .chat__error {
   padding: 6px 12px;
-  background: #fff1f0;
+  background: var(--danger-soft-2);
   border-bottom: 1px solid #ffccc7;
 }
 
 .chat__error-text {
   font-size: 11px;
-  color: #a8071a;
+  color: var(--danger-strong);
 }
 </style>

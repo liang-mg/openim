@@ -394,7 +394,7 @@ export default {
 
 .gs-btn--primary {
   background: var(--brand);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .gs-section-title {
@@ -458,8 +458,8 @@ export default {
 .gs-danger {
   height: 44px;
   border-radius: 10px;
-  background: #fff;
-  border: 1px solid #ffccc7;
+  background: var(--card);
+  border: 1px solid var(--danger-line);
   display: flex;
   align-items: center;
   justify-content: center;

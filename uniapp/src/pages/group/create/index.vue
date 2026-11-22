@@ -19,7 +19,7 @@
       <view v-else class="oa-card gc-list">
         <view v-for="f in friends" :key="f.userID" class="gc-row" @tap="toggle(f)">
           <view class="gc-check" :class="{ 'gc-check--on': selected.includes(f.userID) }">
-            <app-icon v-if="selected.includes(f.userID)" name="check" :size="12" color="#ffffff" />
+            <app-icon v-if="selected.includes(f.userID)" name="check" :size="12" tone="card" />
           </view>
           <oim-avatar :text="(f.remark || f.nickname || '?').slice(0, 1)" :size="40" />
           <view class="gc-main">
@@ -114,7 +114,7 @@ export default {
 <style scoped>
 .gc-count {
   font-size: 12px;
-  color: #fff;
+  color: var(--on-primary);
   opacity: 0.9;
 }
 
@@ -177,7 +177,7 @@ export default {
 }
 
 .gc-check-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 12px;
   line-height: 1;
 }
@@ -208,7 +208,7 @@ export default {
   max-width: 480px;
   margin: 0 auto;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
-  background: #fff;
+  background: var(--card);
   border-top: 1px solid var(--line);
 }
 
@@ -222,7 +222,7 @@ export default {
 }
 
 .gc-create-text {
-  color: #fff;
+  color: var(--on-primary);
   font-size: 15px;
   font-weight: 500;
 }

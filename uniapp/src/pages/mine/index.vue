@@ -307,6 +307,6 @@ export default {
 }
 
 .bs-btn__text--light {
-  color: #fff;
+  color: var(--on-primary);
 }
 </style>

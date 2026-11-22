@@ -76,8 +76,11 @@ export default {
   },
   watch: {
     open(val) {
-      // 每次打开重置为「今天、事假、空事由」，避免上次的残留
-      if (val) this.form = { type: "personal", start: this.today, end: this.today, reason: "" };
+      // 每次打开重置为「下一个工作日、事假、空事由」；周末默认周末日期会被后端拒绝
+      if (val) {
+        const start = nextWorkday(this.today);
+        this.form = { type: "personal", start, end: start, reason: "" };
+      }
     },
   },
   methods: {

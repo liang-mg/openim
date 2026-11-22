@@ -6,10 +6,10 @@
         <text v-if="!connected" class="msg__state">IM 未连接</text>
         <view v-if="totalUnread" class="msg__unread"><text class="msg__unread-text">{{ totalUnread > 99 ? "99+" : totalUnread }}</text></view>
         <view class="msg__add" @tap="showAddMenu">
-          <app-icon name="plus" :size="24" color="#ffffff" />
+          <app-icon name="plus" :size="24" tone="card" />
         </view>
         <view class="msg__bell" @tap="goNotifications">
-          <app-icon name="bell" :size="24" color="#ffffff" />
+          <app-icon name="bell" :size="24" tone="card" />
         </view>
       </view>
     </view>
@@ -69,6 +69,7 @@ export default {
       reloadTimer: null,
       emptyRetryTimer: null,
       emptyRetryCount: 0,
+      lastLoadedAt: 0,
       offSync: null,
       offState: null,
       offMsg: null,
@@ -96,6 +97,8 @@ export default {
     useUserStore()
       .fetchProfile()
       .catch(() => {});
+    // 页面实例保留（switchTab）时，刚拉过就不再重复请求；实时消息靠事件更新
+    if (this.list.length && Date.now() - this.lastLoadedAt < 2500) return;
     this.bootstrap();
     // 登录后预热其余 tab，首次切换不再现场加载页面
     setTimeout(() => preloadTabPages(), 1200);
@@ -194,6 +197,7 @@ export default {
         useIMStore().setUnread(this.totalUnread);
         this.error = "";
         this.connected = getState() === "connected";
+        this.lastLoadedAt = Date.now();
         put("im:conversations", { list: this.list, unread: this.totalUnread });
         if (this.list.length) {
           this.emptyRetryCount = 0;
@@ -297,7 +301,7 @@ export default {
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: #fff;
+  background: var(--card);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -311,7 +315,7 @@ export default {
 
 .msg__search {
   padding: 8px 12px;
-  background: #fff;
+  background: var(--card);
   border-bottom: 1px solid var(--line);
 }
 
@@ -329,16 +333,16 @@ export default {
 
 .msg__error {
   padding: 6px 12px;
-  background: #fff1f0;
+  background: var(--danger-soft-2);
   border-bottom: 1px solid #ffccc7;
 }
 
 .msg__error-text {
   font-size: 11px;
-  color: #a8071a;
+  color: var(--danger-strong);
 }
 
 .msg__list {
-  background: #fff;
+  background: var(--card);
 }
 </style>

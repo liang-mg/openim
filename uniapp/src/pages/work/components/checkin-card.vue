@@ -16,7 +16,7 @@
     </view>
 
     <view class="checkin-card__photo flex-1 h-16 border border-dashed border-white/50 rounded-ctl flex flex-col items-center justify-center gap-1">
-      <app-icon name="camera" :size="18" color="#ffffff" />
+      <app-icon name="camera" :size="18" tone="card" />
       <text class="checkin-card__photo-text text-xs opacity-80">{{ photoText }}</text>
     </view>
     <view class="checkin-card__btn flex-1 h-16 bg-white text-brand-dark rounded-ctl flex items-center justify-center text-md font-medium" @tap.stop="$emit('open')">

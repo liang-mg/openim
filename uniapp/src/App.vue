@@ -77,11 +77,17 @@ page,
   --line: #eef0f3;
   --bg: #f4f6f9;
   --card: #ffffff;
+  --on-primary: #ffffff;
   --danger: #e34d59;
   --danger-soft: #fdecee;
+  --danger-strong: #a8071a;
+  --danger-soft-2: #fff1f0;
+  --danger-line: #ffccc7;
   --warn: #f5a623;
   --warn-text: #a56500;
   --warn-soft: #fff6e5;
+  --warn-strong-2: #ad6800;
+  --warn-line: #ffe0b2;
   --ok: #22a06b;
   --ok-text: #12a870;
   --ok-soft: #e8f7ee;

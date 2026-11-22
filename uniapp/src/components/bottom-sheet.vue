@@ -73,7 +73,7 @@ export default {
 .bs {
   width: 100%;
   max-width: 480px;
-  background: #fff;
+  background: var(--card);
   border-radius: 16px 16px 0 0;
   padding: 16px 14px calc(14px + env(safe-area-inset-bottom));
   box-sizing: border-box;

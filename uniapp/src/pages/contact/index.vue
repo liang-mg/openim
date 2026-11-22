@@ -5,7 +5,7 @@
       <view class="ct__actions">
         <text class="ct__count">{{ loading && !friends.length && !groups.length ? "加载中" : tab === "friends" ? `${filteredFriends.length} 位好友` : `${filteredGroups.length} 个群` }}</text>
         <view class="ct__plus" @tap="showAddMenu">
-          <app-icon name="plus" :size="24" color="#ffffff" />
+          <app-icon name="plus" :size="24" tone="card" />
         </view>
       </view>
     </view>
@@ -271,7 +271,7 @@ export default {
 }
 
 .ct__entries {
-  background: #fff;
+  background: var(--card);
   border-bottom: 1px solid var(--line);
 }
 
@@ -342,7 +342,7 @@ export default {
 
 .ct__badge-text {
   font-size: 10px;
-  color: #fff;
+  color: var(--on-primary);
   font-weight: 600;
   line-height: 1;
 }
@@ -354,7 +354,7 @@ export default {
 
 .ct__tabs {
   display: flex;
-  background: #fff;
+  background: var(--card);
   border-bottom: 1px solid var(--line);
 }
 
@@ -389,7 +389,7 @@ export default {
 
 .ct__search {
   padding: 8px 12px;
-  background: #fff;
+  background: var(--card);
 }
 
 .ct__search-input {
@@ -405,7 +405,7 @@ export default {
 }
 
 .ct__list {
-  background: #fff;
+  background: var(--card);
 }
 
 .person {
