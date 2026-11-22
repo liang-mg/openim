@@ -160,9 +160,11 @@ export default {
     if (this.readTimer) clearTimeout(this.readTimer);
     if (this.keyboardTimer) clearTimeout(this.keyboardTimer);
     if (this.keyboardRecheck) clearTimeout(this.keyboardRecheck);
+    if (this.baselineTimer) clearTimeout(this.baselineTimer);
     // #ifdef APP-PLUS
     try {
       if (this.offKeyboard && typeof uni.offKeyboardHeightChange === "function") uni.offKeyboardHeightChange(this.offKeyboard);
+      if (this.offWindowResize && typeof uni.offWindowResize === "function") uni.offWindowResize(this.offWindowResize);
     } catch (e) {
       /* ignore */
     }
