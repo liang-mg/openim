@@ -101,7 +101,7 @@ const withImOrigin = (path) => (IM_ORIGIN && path.startsWith("/") ? `${IM_ORIGIN
 export const CONFIG = {
   // 应用
   appName: env.VITE_APP_NAME || "新博 OA",
-  appVersion: env.VITE_APP_VERSION || "0.1.2",
+  appVersion: env.VITE_APP_VERSION || "0.1.3",
   buildTag: env.VITE_BUILD_TAG || (env.DEV ? "dev" : "prod"),
   allowOverride: ALLOW_OVERRIDE,
 
