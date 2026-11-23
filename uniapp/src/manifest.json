@@ -2,8 +2,8 @@
     "name" : "新博OA",
     "appid" : "__UNI__9F1C00E",
     "description" : "新博 OA 移动端（IM 会话 / 通讯录 / 工作台 / 打卡 / 出勤 / 日报）",
-    "versionName" : "0.1.3",
-    "versionCode" : "103",
+    "versionName" : "0.1.4",
+    "versionCode" : "104",
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
